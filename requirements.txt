@@ -1,3 +1,3 @@
-flask
-google-genai
-gunicorn
+Flask==3.0.3
+google-genai==0.3.6
+gunicorn==21.2.0
