@@ -1,2 +1,2 @@
-Flask==3.0.3
-google-genai==0.8.5
+Flask
+google-genai
