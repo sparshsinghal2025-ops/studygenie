@@ -10,7 +10,7 @@ def get_ai(topic):
     try:
         from google import genai
         client = genai.Client(api_key=key)
-        r = client.models.generate_content(model="gemini-1.5-flash", contents=f"Explain {topic} in Hinglish, 5 points, 1 example")
+        r = client.models.generate_content(model="gemini-2.5-flash", contents=f"Explain {topic} in Hinglish, 5 points, 1 example")
         return r.text
     except Exception as e:
         return f"Error: {e}"
