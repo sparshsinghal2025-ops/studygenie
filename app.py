@@ -20,7 +20,9 @@ def get_prompt(mode, topic):
 
 @app.route("/static/<path:f>")
 def static_files(f): return send_from_directory("static", f)
-
+@app.route("/sparsh.jpg")
+def sparsh_img():
+    return send_from_directory(".","sparsh.jpg")
 @app.route("/")
 def home():
     return """
@@ -33,7 +35,7 @@ body{margin:0;background:#08080a;color:#fff;padding:16px;background-image:radial
 .wrap{max-width:1000px;margin:0 auto}
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:10px}
 .profile-left{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:18px;padding:8px 14px 8px 8px;backdrop-filter:blur(12px)}
-.profile-left img{width:56px;height:56px;border-radius:50%;object-fit:cover;border:2px solid #ff8a00;box-shadow:0 0 12px rgba(255,138,0,0.5)}
+.profile-left img{width:90px;height:90px;border-radius:50%;object-fit:cover;border:2px solid #ff8a00;box-shadow:0 0 12px rgba(255,138,0,0.5)}
 .profile-name{line-height:1.1}
 .profile-name b{display:block;font-size:14px}
 .profile-name span{font-size:11px;color:#999}
@@ -54,7 +56,7 @@ body{margin:0;background:#08080a;color:#fff;padding:16px;background-image:radial
 
 <div class="topbar">
   <div class="profile-left">
-    <img src="/static/sparsh.jpg" onerror="this.src='https://i.pravatar.cc/150?u=sparsh'">
+    <img src="/sparsh.jpg" onerror="this.src='https://i.pravatar.cc/150?u=sparsh'">
     <div class="profile-name">
       <b>Sparsh Singhal</b>
       <span>Builder • BTech • Educator ✔</span>
