@@ -34,7 +34,7 @@ def ai_answer(topic, mins, lang="hinglish"):
     }
     prompt = prompts.get(mins, prompts["5"])
     try:
-        res = groq_client.chat.completions.create(model="llama-3.3-70b-versatile", messages=[{"role":"user","content":prompt}])
+        res = groq_client.chat.completions.create(model="llama-3.1-8b-instant", messages=[{"role":"user","content":prompt}])
         return res.choices[0].message.content
     except Exception as e:
         try:
@@ -56,7 +56,7 @@ button{padding:10px 18px;margin:6px;border-radius:20px;background:#fff;color:#00
 .pill{background:#1a1a1a;padding:8px 14px;border-radius:20px;font-size:14px}
 </style></head>
 <body>
-<h1>StudyGenie 🔥 V2 by Sparsh</h1>
+<h1>StudyGenie 🔥 by Sparsh Singhal </h1>
 <div class="top">
 <span class="pill" id="s">🔥 Streak: {{streak}} din</span>
 <span class="pill" id="x">⭐ XP: {{xp}} | {{badge}}</span>
