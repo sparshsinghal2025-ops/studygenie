@@ -1,54 +1,31 @@
-from flask import Flask, request, jsonify
-import google.generativeai as genai, os
-
+from flask import Flask
 app = Flask(__name__)
-genai.configure(api_key=os.getenv("GEMINI_KEY"))
-model = genai.GenerativeModel('gemini-1.5-flash')
 
-BRANDING = "\n\n---\nMade with ❤️ by StudyGenie by Sparsh Singhal"
-LANGUAGES = {"hindi": "Hindi", "english": "English", "hinglish": "Hinglish", "tamil": "Tamil", "bengali": "Bengali", "telugu": "Telugu", "marathi": "Marathi", "gujarati": "Gujarati", "kannada": "Kannada", "malayalam": "Malayalam", "punjabi": "Punjabi", "odia": "Odia"}
-USERS = {}
+HTML = """
+<!DOCTYPE html><html><head><title>StudyGenie by Sparsh</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:system-ui;background:#0f0f0f;color:#fff;text-align:center;padding:30px}
+input{padding:16px;width:85%;max-width:420px;border-radius:12px;border:none;font-size:18px;margin-top:10px}
+button{padding:13px 22px;margin:8px;border-radius:10px;border:none;background:#a855f7;color:#fff;font-weight:bold;cursor:pointer;font-size:15px}
+#out{margin-top:28px;text-align:left;background:#1e1e1e;padding:20px;border-radius:14px;max-width:620px;margin-left:auto;margin-right:auto;white-space:pre-wrap;line-height:1.6}</style>
+</head><body>
+<h1>🧞 StudyGenie</h1><p>by Sparsh Singhal - 1min me koi bhi topic samjho</p>
+<input id="q" placeholder="Ex: Photosynthesis, Linked List, Relativity">
+<br><button onclick="gen(1)">1 Min Quick</button><button onclick="gen(5)">5 Min Deep</button><button onclick="gen(10)">10 Min Master</button>
+<div id="out">Yaha magic ayega... Topic likho upar 👆</div>
+<script>
+function gen(m){
+let t=document.getElementById('q').value; if(!t) return alert('Bhai topic toh likh!');
+document.getElementById('out').innerHTML=`<b>🧞 ${t} - ${m} Min Summary</b><br><br>`+
+`✅ <b>Definition:</b> ${t} ka simple matlab...<br><br>`+
+`✅ <b>Example:</b> Real life me ${t} aise kaam karta hai...<br><br>`+
+`✅ <b>Trick to Remember:</b> ${t} = Short trick<br><br>`+
+`🔥 <b>Phase 1 LIVE Hai!</b> Agle phase me AI API connect karenge!`;
+}
+</script></body></html>
+"""
 
-def get_user(p):
-    if p not in USERS: USERS[p] = {"xp":0, "bhasha":"hindi", "mode":"free", "msg_count":0}
-    return USERS[p]
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    d=request.get_json()
-    p=d.get("from","test")
-    msg=d.get("message","hi")
-    u=get_user(p)
-    lang=LANGUAGES.get(u["bhasha"], "Hindi")
-
-    if u["mode"]=="free" and u["msg_count"]>=15:
-        return jsonify({"reply":f"🚫 FREE limit khatam! ULTRA ₹49 jaldi aayega - Unlimited ban jayega{BRANDING}"})
-
-    if msg.lower()=="/help":
-        r=f"StudyGenie by Sparsh Singhal\n\nCommands:\n/1min [topic] - 1 min me samjhao\n/xp - apna level dekho\n/bhasha [hindi/english] - bhasha badlo\n/mood\n\nFree: 15 msg/day{BRANDING}"
-    elif msg.lower().startswith("/bhasha"):
-        try:
-            new_lang=msg.split()[1].lower()
-            u["bhasha"]=new_lang
-            r=f"Bhasha badal gayi: {LANGUAGES.get(new_lang, new_lang)}{BRANDING}"
-        except:
-            r=f"Bhasha use: /bhasha hindi{BRANDING}"
-    elif msg.lower()=="/xp":
-        lvl=u["xp"]//100+1
-        r=f"Level {lvl} | XP: {u['xp']}/{lvl*100} 🚀\nMode: {u['mode']}{BRANDING}"
-    elif msg.lower().startswith("/1min"):
-        topic=msg[6:] if len(msg)>5 else "general topic"
-        res=model.generate_content(f"You are StudyGenie by Sparsh Singhal. Explain {topic} in {lang} in 3 lines + 1 trick + 1 example. Be a friendly bhai.")
-        r=res.text+BRANDING
-        u["msg_count"]+=1
-        u["xp"]+=10
-    else:
-        res=model.generate_content(f"You are StudyGenie by Sparsh Singhal, Indian Bhai. Answer '{msg}' in {lang}. Short, motivating, with example.")
-        r=res.text+BRANDING
-        u["msg_count"]+=1
-        u["xp"]+=10
-    return jsonify({"reply":r})
-
-@app.route("/", methods=["GET"])
-def home():
-    return "Study Genie by Sparsh Singhal V1.0 LIVE"
+@app.route('/')
+def home(): return HTML
+@app.route('/<path:path>')
+def catch_all(path): return HTML
