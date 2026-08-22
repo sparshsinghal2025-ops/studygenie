@@ -97,7 +97,7 @@ button:active{transform:scale(0.95)}
 <img src="/sparsh.jpg" onerror="this.src='https://i.imgur.com/8Km9tLL.png'">
 <h2>Sparsh Singhal 👑</h2>
 <p style="color:#fff;font-weight:bold;margin:5px">Founder - StudyGenie</p>
-<p>12th fail se coder tak ka safar. Masai School se seekha, ab mission hai 1 lakh bachcho ko bina coaching ke top karwana. Ye bot nahi, tumhara bhai hai jo roz tumhare saath padhega.</p>
+<p>School se college tak ka safar. Ab Sparsh hai aapke saath. Ye bot nahi, tumhara bhai hai jo roz tumhare saath padhega.</p>
 <p style="font-size:12px;color:#555;margin-top:15px">Made with ❤️ in India | StudyGenie V2.0 - Permanent Edition</p>
 </div>
 
