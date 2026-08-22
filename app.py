@@ -4,7 +4,7 @@ from datetime import datetime
 import google.generativeai as genai
 
 genai.configure(api_key=os.getenv("GEMINI_KEY"))
-gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+gemini_model = genai.GenerativeModel('gemini-2.0-flash')
 
 app = Flask(__name__)
 
