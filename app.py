@@ -1,7 +1,17 @@
 from flask import Flask, request, jsonify, send_from_directory
 import os
+import re
 app = Flask(__name__)
 
+def is_coding_topic(q):
+    if len(q) < 3: return True
+    prompt = f"Is '{q}' a coding/programming/DSA topic that needs code? Answer only yes or no."
+    try:
+        ans = call_gemini(prompt).lower()
+        return "yes" in ans
+    except:
+        return True
+        
 def call_gemini(prompt):
     from google import genai
     client = genai.Client(api_key=os.getenv("GEMINI_KEY"))
@@ -9,20 +19,34 @@ def call_gemini(prompt):
     return r.text
 
 def get_prompt(mode, topic):
-    return {
-        "explain": f"Explain '{topic}' in Hinglish: 🔥 Definition, 🧱 5 Points, 💡 Example, 🧠 Trick.",
+    coding = is_coding_topic(topic) # NEW
+    
+    # Agar non-coding topic hai aur user ne code mode manga, to samjha do
+    if not coding and mode == "code":
+        return f"Topic '{topic}' is theory topic, not coding. So explain '{topic}' in Hinglish: 🔥 Definition, 🧱 5 Points, 💡 Example, 🧠 Trick. And at end add line: 'Ye coding topic nahi hai isliye Code+ Dry Run skip kiya.'"
+
+    base_prompts = {
+        "explain": f"Explain '{topic}' in Hinglish: 🔥 Definition, 🧱 5 Points, 💡 Example, 🧠 Trick. {'+ C++ Code Example bhi de de chota sa kyunki ye coding topic hai' if coding else ''}",
+        
         "feynman": f"Explain '{topic}' like I'm 10 yrs old in Hinglish, chai/cricket example.",
-        "code": f"For '{topic}' give C++ code + Dry Run table + Mistakes. Hinglish.",
-        "interview": f"5 TCS/Infosys/Wipro interview Qs for '{topic}' with 1-line Hinglish answer.",
+        
+        # === NEW PART 2: SMART CODE PROMPT ===
+        "code": f"For '{topic}' give C++ code + Dry Run table + Mistakes. Hinglish. Topic coding hai = {coding}. Full code de.",
+        
+        "interview": f"5 TCS/Infosys/Wipro interview Qs for '{topic}' with 1-line Hinglish answer. {'2 coding + 3 theory Qs' if coding else '5 theory Qs'}.",
+        
         "quiz": f"Create 5 MCQs on '{topic}' in JSON: [{{'q':'...','options':['a','b','c','d'],'ans':'a'}}] Only JSON.",
-        "cheatsheet": f"CheatSheet for '{topic}' 250 words Hinglish."
-    }.get(mode, f"Explain '{topic}' in Hinglish")
+        
+        "cheatsheet": f"CheatSheet for '{topic}' 250 words Hinglish. {'Include imp code snippet' if coding else ''}"
+    }
+    return base_prompts.get(mode, f"Explain '{topic}' in Hinglish")
 
 @app.route("/static/<path:f>")
 def static_files(f): return send_from_directory("static", f)
 @app.route("/sparsh.jpg")
 def sparsh_img():
     return send_from_directory(".","sparsh.jpg")
+
 @app.route("/")
 def home():
     return """
@@ -45,11 +69,14 @@ body{margin:0;background:#08080a;color:#fff;padding:16px;background-image:radial
 .tabs{display:flex;gap:8px;overflow-x:auto;padding:10px 0}
 .tab{white-space:nowrap;padding:10px 18px;border-radius:100px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.1);cursor:pointer;font-weight:700;font-size:13px}
 .tab.active{background:#fff;color:#000}
+.tab.code-mode{background:linear-gradient(135deg,#00ff88,#00cc66);color:#000;display:none}
+.tab.code-mode.show{display:block}
 .search{display:flex;gap:10px;background:rgba(255,255,255,0.08);padding:8px;border-radius:20px;border:1px solid rgba(255,255,255,0.12);margin:14px 0}
 .search input{flex:1;background:transparent;border:none;padding:12px 18px;color:#fff;font-size:17px;outline:none}
 .btn{padding:12px 24px;border-radius:14px;border:none;background:linear-gradient(135deg,#ff3a00,#ff8a00);color:#fff;font-weight:900;cursor:pointer}
 .card{background:rgba(255,255,255,0.06);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.1);border-radius:24px;padding:22px;min-height:220px;white-space:pre-wrap;line-height:1.7}
 .badge{font-size:10px;padding:5px 10px;border-radius:100px;background:#ff3a0026;border:1px solid #ff3a0050;color:#ff8a00;font-weight:800}
+.badge.coding{background:#00ff8826;border-color:#00ff8850;color:#00ff88}
 @media(max-width:700px){.topbar{flex-direction:column}.profile-left{width:100%;justify-content:center}.header h1{font-size:38px}}
 </style></head><body>
 <div class="wrap">
@@ -72,26 +99,72 @@ body{margin:0;background:#08080a;color:#fff;padding:16px;background-image:radial
 </div>
 
 <div class="tabs" id="tabs">
-<div class="tab active" data-m="explain">🧠 Explain</div><div class="tab" data-m="feynman">👶 Feynman 10yr</div><div class="tab" data-m="code">💻 Code + Dry Run</div><div class="tab" data-m="interview">🎯 Interview Qs</div><div class="tab" data-m="quiz">📝 Quiz</div><div class="tab" data-m="cheatsheet">📄 CheatSheet</div>
+<div class="tab active" data-m="explain">🧠 Explain</div>
+<div class="tab" data-m="feynman">👶 Feynman 10yr</div>
+<div class="tab code-mode" data-m="code" id="codeTab">💻 Code + Dry Run</div>
+<div class="tab" data-m="interview">🎯 Interview Qs</div>
+<div class="tab" data-m="quiz">📝 Quiz</div>
+<div class="tab" data-m="cheatsheet">📄 CheatSheet</div>
 </div>
 
 <div class="search"><input id="topic" placeholder="Topic: Arrays, Linked List, OOPS..."><button class="btn" onclick="run()">GO →</button></div>
 <div id="out" class="card"><span class="badge">✨ READY</span>
 
 Topic likh aur GO daba - ab teri photo ke saath site live hogi!
+Coding topic hoga to Code+Dry Run auto show hoga!
 </div>
 
-<div style="text-align:center;color:#444;font-size:10px;margin-top:22px;letter-spacing:2px">POWERED BY GEMINI 3.6 FLASH • PHASE 2 LIVE</div>
+<div style="text-align:center;color:#444;font-size:10px;margin-top:22px;letter-spacing:2px">POWERED BY GEMINI 3.6 FLASH • AUTO CODE DETECT LIVE</div>
 </div>
 
 <script>
 let mode='explain';
-document.querySelectorAll('.tab').forEach(t=>{t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');mode=t.dataset.m;if(document.getElementById('topic').value)run()}})
+const codingKeywords = ["array","linked list","stack","queue","tree","graph","recursion","dp","oops","class","object","pointer","function","loop","string","sorting","searching","binary","hash","heap","code","program","dsa","c++","java","python"];
+
+function checkIsCodingTopic(topic){
+  let low = topic.toLowerCase();
+  return codingKeywords.some(k => low.includes(k));
+}
+
+function updateCodeTab(topic){
+  let codeTab = document.getElementById('codeTab');
+  if(checkIsCodingTopic(topic)){
+    codeTab.classList.add('show');
+  } else {
+    codeTab.classList.remove('show');
+    if(mode === 'code') {
+      document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+      document.querySelector('[data-m="explain"]').classList.add('active');
+      mode='explain';
+    }
+  }
+}
+
+document.querySelectorAll('.tab').forEach(t=>{
+  t.onclick=()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    mode=t.dataset.m;
+    if(document.getElementById('topic').value) run()
+  }
+})
+
+document.getElementById('topic').addEventListener('input', (e)=>{
+  updateCodeTab(e.target.value);
+});
+
 async function run(){
  let topic=document.getElementById('topic').value.trim()||'Arrays';
+ let isCoding = checkIsCodingTopic(topic);
  let out=document.getElementById('out');
- out.innerHTML='<span class="badge">🤖 SOCH RAHA HU...</span>\\n\\n'+topic+' ke liye '+mode+' bana raha hu...';
- try{let res=await fetch('/api/genie',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic,mode})});let data=await res.json();out.innerHTML='<span class="badge">🔥 '+mode.toUpperCase()+' • '+topic+'</span>\\n\\n'+data.reply}catch(e){out.innerHTML='Error: '+e}
+ let badgeType = isCoding ? '<span class="badge coding">💻 CODING TOPIC DETECTED</span>' : '<span class="badge">📚 THEORY TOPIC</span>';
+ out.innerHTML=badgeType+'\\n\\n'+topic+' ke liye '+mode+' bana raha hu...\\nCoding Topic: '+(isCoding ? 'YES → Code+Dry Run include karunga' : 'NO → Theory only');
+ try{
+   let res=await fetch('/api/genie',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic,mode})});
+   let data=await res.json();
+   let finalBadge = isCoding ? '<span class="badge coding">💻 CODE + DRY RUN INCLUDED • '+topic+'</span>' : '<span class="badge">🔥 '+mode.toUpperCase()+' • '+topic+'</span>';
+   out.innerHTML=finalBadge+'\\n\\n'+data.reply
+ }catch(e){out.innerHTML='Error: '+e}
 }
 document.getElementById('topic').addEventListener('keypress',e=>{if(e.key==='Enter')run()});
 </script></body></html>
@@ -100,9 +173,21 @@ document.getElementById('topic').addEventListener('keypress',e=>{if(e.key==='Ent
 @app.route("/api/genie", methods=["POST"])
 def genie():
     d=request.get_json() or {}
+    topic = d.get("topic","OOPS")
+    mode = d.get("mode","explain")
     try:
-        reply=call_gemini(get_prompt(d.get("mode","explain"), d.get("topic","OOPS")))
-        return jsonify({"reply":reply})
+        # Backend check also
+        coding_flag = is_coding_topic(topic)
+        prompt = get_prompt(mode, topic)
+        reply = call_gemini(prompt)
+        
+        # Extra info for frontend
+        prefix = "💻 CODING TOPIC → Code+Dry Run Added\\n\\n" if coding_flag and mode in ["explain","code"] else ""
+        # Don't add prefix if already in code mode
+        if mode == "code" and coding_flag:
+            prefix = ""
+            
+        return jsonify({"reply": reply, "is_coding": coding_flag})
     except Exception as e:
         return jsonify({"reply":f"Error: {str(e)}"})
 
