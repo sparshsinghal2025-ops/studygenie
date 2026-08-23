@@ -25,19 +25,26 @@ function isFounder(){ return localStorage.getItem("sg_is_founder")==="true"; }
 function updateUI(){ let founder = isFounder(); document.getElementById('founderTag').classList.toggle('hidden',!founder); if(founder){ document.getElementById('wishText').innerText='∞ Unlimited'; document.getElementById('wishBar').style.width='100%'; document.getElementById('wishBar').className='h-full bg-gradient-to-r from-green-500 to-emerald-400'; document.getElementById('bat').innerText='∞'; } else { document.getElementById('wishText').innerText=store.c+'/'+WISH_LIMIT; document.getElementById('wishBar').style.width=(store.c/WISH_LIMIT*100)+'%'; document.getElementById('bat').innerText=(100-store.c*10)+'%'; } document.getElementById('xpBar').style.width=(store.xp%100)+'%'; document.getElementById('xpText').innerText=store.xp+' XP'; document.getElementById('streakTop').innerText='🔥 '+store.streak+' streak'; document.getElementById('boardText').innerText=`You - ${store.xp} XP`; if(!founder && store.c>=WISH_LIMIT) document.getElementById('payModal').classList.add('active'); }
 function resetWishes(){store.c=0; localStorage.setItem("sg_final", JSON.stringify(store)); document.getElementById('payModal').classList.remove('active'); updateUI();}
 
-// FIXED SPEAK - Ab pura bolega, aadha nahi
+// FIXED - Pura bolega + Emoji nahi bolega
 function speak(t){
   try{
     speechSynthesis.cancel();
-    let clean = t.replace(/<[^>]*>/g,'');
+    let clean = t.replace(/<[^>]*>/g,'')
+               .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1F600}-\u{1F64F}]/gu,'')
+               .replace(/[🔥💡🧠🧞‍♂️😏😊😂💔🚀🎙️💡📚]/g,'')
+               .replace(/\s+/g,' ').trim();
+    if(!clean) return;
     let parts = clean.match(/[^.!?।]+[.!?।]+|[^.!?।]+$/g) || [clean];
     let i=0;
     function next(){
       if(i>=parts.length) return;
-      let u=new SpeechSynthesisUtterance(parts[i].trim());
-      u.lang='hi-IN'; u.rate=1.05;
-      u.onend=()=>{i++; next();};
-      speechSynthesis.speak(u);
+      let txt = parts[i].trim();
+      if(txt){
+        let u=new SpeechSynthesisUtterance(txt);
+        u.lang='hi-IN'; u.rate=1.05;
+        u.onend=()=>{i++; next();};
+        speechSynthesis.speak(u);
+      } else { i++; next(); }
     }
     next();
   }catch{}
