@@ -9,8 +9,8 @@ try:
 except:
     client = None
 
-REAL_LEADERBOARD = {} # {uid: {id, name, phone, xp}}
-USER_DB = {} # {phone: {name, uid, plan}}
+REAL_LEADERBOARD = {} # uid -> {id, name, xp, phone_internal}
+USER_DB = {} # phone -> full data for plan tracking (private)
 
 HTML_PAGE = r"""
 <!DOCTYPE html>
@@ -32,7 +32,7 @@ body{background:#050507!important;color:#fff;overflow-y:auto!important;min-heigh
 #chat{max-height:60vh;overflow-y:auto!important;scroll-behavior:smooth}
 .hitpop{animation:pop.3s cubic-bezier(.175,.885,.32,1.275)} @keyframes pop{0%{transform:scale(.6)}100%{transform:scale(1)}}
 .shake{animation:shake.3s} @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
-.input-glow:focus{border-color:#ff4d00!important; box-shadow:0 0 15px rgba(255,77,0,0.3)}
+.input-glow:focus{border-color:#ff4d00!important;box-shadow:0 0 15px rgba(255,77,0,0.3)}
 </style>
 </head>
 <body class="p-3">
@@ -49,11 +49,16 @@ body{background:#050507!important;color:#fff;overflow-y:auto!important;min-heigh
   <div class="col-span-12 lg:col-span-3 space-y-3">
     <div class="hud rounded-[14px] p-4"><p class="mono text-[10px] text-zinc-500 tracking-widest">> MISSIONS BY SPARSH SINGHAL</p><div class="mt-4 bg-black p-3 rounded-[10px] border-l-[3px] border-[#ff4d00]"><div class="flex justify-between mono text-[11px] font-bold"><span>ELIMINATE 3 DOUBTS</span><span id="q1t">0/3</span></div><div class="progress mt-2"><div id="q1b" style="width:0%"></div></div></div></div>
     <div class="hud rounded-[14px] p-4"><p class="mono text-[10px] text-zinc-500 tracking-widest">> AMMO CRATE</p><div id="lampRow" class="grid grid-cols-5 gap-2 mt-3"></div><button onclick="openPay()" class="w-full mt-4 bg-[#ff4d00] mono font-black py-3 rounded-[10px]">RELOAD - ₹49</button></div>
+
     <div class="hud rounded-[14px] p-4 border border-[#ff4d00]/30">
       <p class="mono text-[10px] text-[#ff4d00] tracking-widest font-black">> LIVE LEADERBOARD 🏆 BY SPARSH SINGHAL</p>
-      <p class="mono text-[9px] text-zinc-500 mt-1">AUTO REFRESH EVERY 5s</p>
+      <p class="mono text-[9px] text-zinc-500 mt-1">ONLY NAME + XP VISIBLE TO ALL</p>
       <div id="board" class="mt-3 space-y-2 mono text-[11px]"></div>
-      <div class="mt-3 mono text-[9px] text-zinc-600 bg-black p-2 rounded">YOUR ID: <span id="myId" class="text-zinc-400"></span><br>PHONE: <span id="myPhone" class="text-zinc-400"></span></div>
+      <div class="mt-3 mono text-[9px] text-zinc-500 bg-black p-2.5 rounded border border-zinc-800">
+        <span class="text-[#ff8a00]">PRIVATE - ONLY YOU CAN SEE 🔒</span><br>
+        <span id="myId" class="text-zinc-500"></span><br>
+        <span id="myPhone"></span>
+      </div>
     </div>
   </div>
   <div class="col-span-12 lg:col-span-9 hud rounded-[16px] p-4 flex flex-col">
@@ -63,28 +68,15 @@ body{background:#050507!important;color:#fff;overflow-y:auto!important;min-heigh
 </div>
 </div>
 
-<!-- ONBOARDING MODAL - NAME + PHONE BY SPARSH SINGHAL -->
 <div id="onboardModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4" style="background:rgba(0,0,0,0.92)">
   <div class="hud rounded-[20px] p-7 max-w-[420px] w-full border-2 border-[#ff4d00]/50 shadow-[0_0_50px_rgba(255,77,0,0.3)]">
-    <div class="flex items-center gap-4">
-      <img src="/sparsh.jpg" class="w-16 h-16 rounded-[12px] border-2 border-[#ff4d00] object-cover">
-      <div><h2 class="font-black text-[20px] leading-none">WARRIOR REGISTRATION</h2><p class="mono text-[11px] text-[#ff8a00] mt-1 font-bold">BY SPARSH SINGHAL</p></div>
-    </div>
-    <p class="mono text-[11px] text-zinc-400 mt-4 leading-relaxed">Leaderboard pe naam dikhega, phone se tera ₹49 plan track hoga. No spam, by Sparsh Singhal.</p>
-
+    <div class="flex items-center gap-4"><img src="/sparsh.jpg" class="w-16 h-16 rounded-[12px] border-2 border-[#ff4d00] object-cover"><div><h2 class="font-black text-[20px] leading-none">WARRIOR REGISTRATION</h2><p class="mono text-[11px] text-[#ff8a00] mt-1 font-bold">BY SPARSH SINGHAL</p></div></div>
+    <p class="mono text-[11px] text-zinc-400 mt-4">Leaderboard pe sirf naam dikhega. Phone private hai, sirf ₹49 plan track ke liye.</p>
     <div class="mt-5 space-y-3">
-      <div>
-        <label class="mono text-[10px] text-zinc-500 tracking-widest">YOUR WARRIOR NAME *</label>
-        <input id="inpName" class="w-full mt-1 bg-black border-2 border-zinc-800 rounded-[10px] px-4 py-3 mono text-[14px] outline-none input-glow" placeholder="Ex: Aman, Priya..." maxlength="20">
-      </div>
-      <div>
-        <label class="mono text-[10px] text-zinc-500 tracking-widest">PHONE NUMBER * (PLAN TRACK)</label>
-        <input id="inpPhone" type="tel" class="w-full mt-1 bg-black border-2 border-zinc-800 rounded-[10px] px-4 py-3 mono text-[14px] outline-none input-glow" placeholder="10 digit number" maxlength="10" inputmode="numeric">
-      </div>
+      <div><label class="mono text-[10px] text-zinc-500">YOUR WARRIOR NAME *</label><input id="inpName" class="w-full mt-1 bg-black border-2 border-zinc-800 rounded-[10px] px-4 py-3 mono text-[14px] outline-none input-glow" placeholder="Ex: Aman..." maxlength="20"></div>
+      <div><label class="mono text-[10px] text-zinc-500">PHONE (PRIVATE, NOT VISIBLE TO OTHERS) *</label><input id="inpPhone" type="tel" class="w-full mt-1 bg-black border-2 border-zinc-800 rounded-[10px] px-4 py-3 mono text-[14px] outline-none input-glow" placeholder="10 digit" maxlength="10" inputmode="numeric"></div>
     </div>
-
-    <button onclick="saveOnboard()" class="w-full mt-6 bg-gradient-to-r from-[#ff4d00] to-[#ff8a00] mono font-black py-3.5 rounded-[12px] shadow-[0_0_20px_rgba(255,77,0,0.4)]">ENTER BATTLEFIELD 🔫</button>
-    <p class="mono text-[9px] text-zinc-600 text-center mt-3">BY SPARSH SINGHAL • SECURE • NO OTP NEEDED NOW</p>
+    <button onclick="saveOnboard()" class="w-full mt-6 bg-gradient-to-r from-[#ff4d00] to-[#ff8a00] mono font-black py-3.5 rounded-[12px]">ENTER BATTLEFIELD 🔫</button>
   </div>
 </div>
 
@@ -92,50 +84,35 @@ body{background:#050507!important;color:#fff;overflow-y:auto!important;min-heigh
 
 <script>
 let audioCtx; function initAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }
-function playSound(type){
-  try{ initAudio(); let o=audioCtx.createOscillator(); let g=audioCtx.createGain(); o.connect(g); g.connect(audioCtx.destination);
-    if(type=='fire'){ o.frequency.value=900; o.type='square'; g.gain.setValueAtTime(0.4, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime+0.12); o.start(); o.stop(audioCtx.currentTime+0.12); }
-    if(type=='hit'){ o.frequency.value=500; o.type='sine'; g.gain.setValueAtTime(0.3, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime+0.2); o.start(); o.stop(audioCtx.currentTime+0.2); }
-    if(type=='level'){ o.frequency.value=600; o.type='sine'; g.gain.setValueAtTime(0.4, audioCtx.currentTime); o.frequency.linearRampToValueAtTime(1200, audioCtx.currentTime+0.5); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime+0.6); o.start(); o.stop(audioCtx.currentTime+0.6); }
-    if(type=='empty'){ o.frequency.value=150; o.type='sawtooth'; g.gain.setValueAtTime(0.4, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime+0.6); o.start(); o.stop(audioCtx.currentTime+0.6); }
-    if(type=='click'){ o.frequency.value=800; o.type='triangle'; g.gain.setValueAtTime(0.2, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime+0.1); o.start(); o.stop(audioCtx.currentTime+0.1); }
-    if(type=='reload'){ o.frequency.value=300; o.type='sine'; g.gain.setValueAtTime(0.4, audioCtx.currentTime); o.frequency.linearRampToValueAtTime(800, audioCtx.currentTime+0.4); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime+0.5); o.start(); o.stop(audioCtx.currentTime+0.5); }
-  }catch{}
-}
-function openPay(){ playSound('empty'); let ph=localStorage.getItem('genie_phone')||''; document.getElementById('payPhoneInfo').innerText = ph? `Plan will be linked to: ${ph} - BY SPARSH SINGHAL` : ''; document.getElementById('payModal').classList.remove('hidden'); }
+function playSound(t){ try{ initAudio(); let o=audioCtx.createOscillator(); let g=audioCtx.createGain(); o.connect(g); g.connect(audioCtx.destination); if(t=='fire'){o.frequency.value=900;o.type='square';g.gain.setValueAtTime(0.4,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.12);o.start();o.stop(audioCtx.currentTime+0.12);} if(t=='hit'){o.frequency.value=500;o.type='sine';g.gain.setValueAtTime(0.3,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.2);o.start();o.stop(audioCtx.currentTime+0.2);} if(t=='level'){o.frequency.value=600;o.type='sine';g.gain.setValueAtTime(0.4,audioCtx.currentTime);o.frequency.linearRampToValueAtTime(1200,audioCtx.currentTime+0.5);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.6);o.start();o.stop(audioCtx.currentTime+0.6);} if(t=='empty'){o.frequency.value=150;o.type='sawtooth';g.gain.setValueAtTime(0.4,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.6);o.start();o.stop(audioCtx.currentTime+0.6);} if(t=='click'){o.frequency.value=800;o.type='triangle';g.gain.setValueAtTime(0.2,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.1);o.start();o.stop(audioCtx.currentTime+0.1);} }catch{} }
+function openPay(){ playSound('empty'); let ph=localStorage.getItem('genie_phone')||''; document.getElementById('payPhoneInfo').innerText = ph? `Plan linked to private no. XXXXXX${ph.slice(-4)} - BY SPARSH SINGHAL`:''; document.getElementById('payModal').classList.remove('hidden'); }
 function closePay(){ playSound('click'); document.getElementById('payModal').classList.add('hidden'); }
 
 let userId=localStorage.getItem('genie_userId')||'user_'+Math.random().toString(36).substr(2,9); localStorage.setItem('genie_userId',userId);
-let userName = localStorage.getItem('genie_name') || '';
-let userPhone = localStorage.getItem('genie_phone') || '';
-document.getElementById('myId').innerText = userId;
+let userName = localStorage.getItem('genie_name')||''; let userPhone = localStorage.getItem('genie_phone')||'';
 
 function checkOnboard(){
-  userName = localStorage.getItem('genie_name') || '';
-  userPhone = localStorage.getItem('genie_phone') || '';
-  if(!userName ||!userPhone || userPhone.length!=10){
-    document.getElementById('onboardModal').classList.remove('hidden');
-  } else {
+  userName=localStorage.getItem('genie_name')||''; userPhone=localStorage.getItem('genie_phone')||'';
+  if(!userName ||!userPhone || userPhone.length!=10){ document.getElementById('onboardModal').classList.remove('hidden'); }
+  else{
     document.getElementById('onboardModal').classList.add('hidden');
-    document.getElementById('userNameTop').innerText = userName.toUpperCase();
-    document.getElementById('myPhone').innerText = userPhone;
+    document.getElementById('userNameTop').innerText=userName.toUpperCase();
+    document.getElementById('myId').innerText = `ID: ${userId} (private)`;
+    document.getElementById('myPhone').innerText = `PHONE: XXXXXX${userPhone.slice(-4)} 🔒 Private`;
   }
 }
 function saveOnboard(){
-  let n = document.getElementById('inpName').value.trim();
-  let p = document.getElementById('inpPhone').value.trim().replace(/[^0-9]/g,'');
-  if(n.length<2){ alert('Naam to daal de warrior!'); playSound('empty'); return; }
-  if(p.length!=10){ alert('10 digit phone number daal - plan track karne ke liye'); playSound('empty'); return; }
-  localStorage.setItem('genie_name', n);
-  localStorage.setItem('genie_phone', p);
-  userName=n; userPhone=p;
-  playSound('level');
+  let n=document.getElementById('inpName').value.trim(); let p=document.getElementById('inpPhone').value.trim().replace(/[^0-9]/g,'');
+  if(n.length<2){alert('Naam daal de warrior!');playSound('empty');return;}
+  if(p.length!=10){alert('10 digit phone daal');playSound('empty');return;}
+  localStorage.setItem('genie_name',n); localStorage.setItem('genie_phone',p);
+  userName=n; userPhone=p; playSound('level');
   document.getElementById('onboardModal').classList.add('hidden');
-  document.getElementById('userNameTop').innerText = n.toUpperCase();
-  document.getElementById('myPhone').innerText = p;
+  document.getElementById('userNameTop').innerText=n.toUpperCase();
+  document.getElementById('myId').innerText=`ID: ${userId} (private)`;
+  document.getElementById('myPhone').innerText=`PHONE: XXXXXX${p.slice(-4)} 🔒 Private`;
   updateLeaderboard();
-  // Save to backend for tracking
-  fetch('/register_user',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:userId, name:n, phone:p})});
+  fetch('/register_user',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:userId,name:n,phone:p})});
 }
 
 let stats=JSON.parse(localStorage.getItem('genie_stats')||'{"xp":0,"level":1,"wishes":0,"q1":0,"totalXp":0}');
@@ -143,52 +120,43 @@ let isDev=localStorage.getItem('isDev')==='true';
 function lamps(){let r=document.getElementById('lampRow'); r.innerHTML=''; for(let i=0;i<10;i++){let u=i<stats.wishes&&!isDev; r.innerHTML+=`<div class="ammo ${u?'used':''}">${u?'💨':'🪔'}</div>`;}}
 function save(){localStorage.setItem('genie_stats',JSON.stringify(stats)); render(); updateLeaderboard();}
 function render(){document.getElementById('wishLeft').innerText=isDev?'∞':10-stats.wishes; document.getElementById('lvlTop').innerText=stats.level; document.getElementById('xpBarTop').style.width=stats.xp+'%'; document.getElementById('xpText').innerText=stats.xp+'/100 XP'; document.getElementById('q1t').innerText=stats.q1+'/3'; document.getElementById('q1b').style.width=stats.q1/3*100+'%'; lamps();}
-
 async function updateLeaderboard(){
   try{
-    let nameToSend = localStorage.getItem('genie_name') || userName || 'Warrior';
-    let phoneToSend = localStorage.getItem('genie_phone') || userPhone || '';
-    await fetch('/update_xp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:userId, name:nameToSend, phone:phoneToSend, xp:stats.totalXp||((stats.level-1)*100+stats.xp)})});
+    let n=localStorage.getItem('genie_name')||userName||'Warrior'; let ph=localStorage.getItem('genie_phone')||userPhone||'';
+    await fetch('/update_xp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:userId,name:n,phone:ph,xp:stats.totalXp||((stats.level-1)*100+stats.xp)})});
     loadBoard();
   }catch{}
 }
 async function loadBoard(){
   try{
-    let r=await fetch('/leaderboard?uid='+userId+'&t='+Date.now()); let d=await r.json();
-    if(d.length==0){ document.getElementById('board').innerHTML=`<div class="text-zinc-500 text-center py-2">No warriors yet. Be first!</div>`; return; }
-    let myRank = d.findIndex(u=>u.id===userId)+1;
-    document.getElementById('rankTop').innerText = myRank || '-';
-    document.getElementById('board').innerHTML = d.map((u,i)=>{
-      let isMe = u.id===userId;
-      let medal = i==0?'👑':i==1?'🥈':i==2?'🥉':`${i+1}.`;
+    let r=await fetch('/leaderboard?t='+Date.now()); let d=await r.json();
+    if(d.length==0){document.getElementById('board').innerHTML=`<div class="text-zinc-500 text-center py-2">No warriors yet. Be first!</div>`; return;}
+    let myRank=d.findIndex(u=>u.id===userId)+1; document.getElementById('rankTop').innerText=myRank||'-';
+    document.getElementById('board').innerHTML=d.map((u,i)=>{
+      let isMe=u.id===userId; let medal=i==0?'👑':i==1?'🥈':i==2?'🥉':`${i+1}.`;
       return `<div class="flex justify-between items-center p-2.5 rounded-[8px] border ${isMe?'bg-[#ff4d00]/10 border-[#ff4d00]/50 text-white':'bg-black border-zinc-800 text-zinc-300'} hitpop"><span>${medal} ${u.name} ${isMe?'[YOU]':''}</span><span class="text-[#ff4d00] font-black">${u.xp} XP</span></div>`;
     }).join('');
-  }catch(e){}
+  }catch{}
 }
-
-let c=0; document.getElementById('logo').addEventListener('click',()=>{ playSound('click'); c++; if(c>=5){ let p=prompt("DEV ACCESS BY SPARSH SINGHAL - Secret Code:"); if(p==="sparsh123"){isDev=!isDev; localStorage.setItem('isDev',isDev); playSound(isDev?'level':'empty'); alert(isDev?'GOD MODE ON':'GOD MODE OFF'); render();} else if(p!==null){alert("ACCESS DENIED!");} c=0;} setTimeout(()=>c=0,2000); });
-
+let c=0; document.getElementById('logo').addEventListener('click',()=>{playSound('click');c++;if(c>=5){let p=prompt("DEV ACCESS BY SPARSH SINGHAL - Secret Code:");if(p==="sparsh123"){isDev=!isDev;localStorage.setItem('isDev',isDev);playSound(isDev?'level':'empty');alert(isDev?'GOD MODE ON':'GOD MODE OFF');render();}else if(p!==null){alert("ACCESS DENIED!");}c=0;}setTimeout(()=>c=0,2000);});
 async function ask(){
-  if(!localStorage.getItem('genie_name') ||!localStorage.getItem('genie_phone')){ checkOnboard(); return; }
-  let input=document.getElementById('q'); let q=input.value.trim(); if(!q) return;
-  if(!isDev && stats.wishes>=10){ openPay(); return; }
-  playSound('fire');
-  let chat=document.getElementById('chat'); chat.innerHTML+=`<div class="flex justify-end hitpop"><div class="bubble-user px-4 py-2 text-[14px] mono">${q}</div></div>`; input.value='';
-  stats.wishes++; stats.q1=Math.min(3,stats.q1+1); stats.xp+=12; stats.totalXp = (stats.totalXp||0)+12;
-  if(stats.xp>=100){stats.level++; stats.xp=0; playSound('level'); chat.innerHTML+=`<div class="text-center mono text-[#ff4d00] font-black text-[12px] py-2">LEVEL UP BY SPARSH SINGHAL - LVL ${stats.level}</div>`;}
+  if(!localStorage.getItem('genie_name')||!localStorage.getItem('genie_phone')){checkOnboard();return;}
+  let input=document.getElementById('q'); let q=input.value.trim(); if(!q)return;
+  if(!isDev && stats.wishes>=10){openPay();return;}
+  playSound('fire'); let chat=document.getElementById('chat'); chat.innerHTML+=`<div class="flex justify-end hitpop"><div class="bubble-user px-4 py-2 text-[14px] mono">${q}</div></div>`; input.value='';
+  stats.wishes++; stats.q1=Math.min(3,stats.q1+1); stats.xp+=12; stats.totalXp=(stats.totalXp||0)+12;
+  if(stats.xp>=100){stats.level++;stats.xp=0;playSound('level');chat.innerHTML+=`<div class="text-center mono text-[#ff4d00] font-black text-[12px] py-2">LEVEL UP BY SPARSH SINGHAL - LVL ${stats.level}</div>`;}
   save();
   chat.innerHTML+=`<div id="typing" class="flex gap-3"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-4 mono text-[12px] text-zinc-400 animate-pulse">> SPARSH SINGHAL'S GENIE LOCKING TARGET...</div></div>`; chat.scrollTop=chat.scrollHeight;
-  let res=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q, name:userName, phone:userPhone})}); let data=await res.json();
+  let res=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q,name:userName,phone:userPhone})}); let data=await res.json();
   document.getElementById('typing')?.remove(); playSound('hit');
   chat.innerHTML+=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-4 max-w-[78%] text-[14px] whitespace-pre-wrap">${data.ans}</div></div>`;
   chat.scrollTop=chat.scrollHeight;
 }
-
-document.getElementById('chat').innerHTML=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-5 max-w-[78%] text-[14px] leading-relaxed">🔥 <b>OYE WARRIOR, BATTLEFIELD ME SWAGAT HAI!</b><br><br>Main hoon <b>Sparsh Singhal ka StudyGenie</b> — tere har doubt ko headshot dunga. Live leaderboard side me check kar, top pe kaun hai! 🔫<br><br><span class="mono text-[10px] text-[#ff4d00]">BY SPARSH SINGHAL | LIVE RANKING ON | SOUND ON 🔊</span></div></div>`;
+document.getElementById('chat').innerHTML=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-5 max-w-[78%] text-[14px] leading-relaxed">🔥 <b>OYE WARRIOR, BATTLEFIELD ME SWAGAT HAI!</b><br><br>Main hoon <b>Sparsh Singhal ka StudyGenie</b> — tere har doubt ko headshot dunga. Leaderboard pe sirf naam dikhega, phone private rahega! 🔫<br><br><span class="mono text-[10px] text-[#ff4d00]">BY SPARSH SINGHAL | PRIVATE DATA SAFE | SOUND ON 🔊</span></div></div>`;
 checkOnboard(); render(); loadBoard(); setInterval(loadBoard, 5000);
-// Auto-fill if already exists
-if(localStorage.getItem('genie_name')) document.getElementById('inpName').value = localStorage.getItem('genie_name');
-if(localStorage.getItem('genie_phone')) document.getElementById('inpPhone').value = localStorage.getItem('genie_phone');
+if(localStorage.getItem('genie_name')) document.getElementById('inpName').value=localStorage.getItem('genie_name');
+if(localStorage.getItem('genie_phone')) document.getElementById('inpPhone').value=localStorage.getItem('genie_phone');
 </script></body></html>
 """
 
@@ -203,47 +171,44 @@ def photo():
 @app.route("/register_user", methods=["POST"])
 def register_user():
     d = request.get_json(silent=True) or {}
-    uid = d.get("uid")
-    name = d.get("name","Warrior")[:20]
-    phone = d.get("phone","")[:10]
+    uid = d.get("uid"); name = d.get("name","Warrior")[:20]; phone = d.get("phone","")[:10]
     if phone:
         USER_DB[phone] = {"name": name, "uid": uid, "phone": phone, "plan": "free", "xp": 0}
-        if uid in REAL_LEADERBOARD:
-            REAL_LEADERBOARD[uid]["name"] = name
-            REAL_LEADERBOARD[uid]["phone"] = phone
     return jsonify({"ok": True})
 
 @app.route("/leaderboard")
 def leaderboard():
+    # PUBLIC API - phone kabhi nahi bhejna
     sorted_users = sorted(REAL_LEADERBOARD.values(), key=lambda x: x['xp'], reverse=True)[:10]
-    return jsonify(sorted_users)
+    public = [{"id": u["id"], "name": u["name"], "xp": u["xp"]} for u in sorted_users]
+    return jsonify(public)
 
 @app.route("/update_xp", methods=["POST"])
 def update_xp():
     d = request.get_json(silent=True) or {}
-    uid = d.get("uid","anon")
-    xp = int(d.get("xp",0))
+    uid = d.get("uid","anon"); xp = int(d.get("xp",0))
     name = d.get("name","Warrior")[:20] or f"Grinder {uid[-3:].upper()}"
     phone = d.get("phone","")[:10]
-    REAL_LEADERBOARD[uid] = {"id": uid, "name": name, "phone": phone, "xp": xp}
+    # Phone ko leaderboard me store mat karo public ke liye, alag rakho
+    REAL_LEADERBOARD[uid] = {"id": uid, "name": name, "xp": xp, "_phone": phone}
     if phone and phone in USER_DB:
         USER_DB[phone]["xp"] = xp
+        USER_DB[phone]["name"] = name
     return jsonify({"ok": True})
 
 @app.route("/ask", methods=["POST"])
 def ask_gemini():
     d = request.get_json(silent=True) or {}
-    q = d.get("q","")
-    name = d.get("name","Warrior")
+    q = d.get("q",""); name = d.get("name","Warrior")
     if not client: return jsonify({"ans": f"Oye {name}, API Key missing - BY SPARSH SINGHAL"})
     try:
-        resp = client.models.generate_content(model="gemini-3.6-flash", contents=f"You are StudyGenie by Sparsh Singhal. User name is {name}. Hinglish savage 180 words. User: {q}")
+        resp = client.models.generate_content(model="gemini-3.6-flash", contents=f"You are StudyGenie by Sparsh Singhal. User name {name}. Hinglish savage 180 words. User: {q}")
         return jsonify({"ans": resp.text})
     except Exception as e: return jsonify({"ans": f"Error {e} - BY SPARSH SINGHAL"})
 
 @app.route("/admin_users")
 def admin_users():
-    # Sparsh Singhal can see all registered phones for plan tracking
-    return jsonify({"users": list(USER_DB.values()), "leaderboard": list(REAL_LEADERBOARD.values())})
+    # Sirf Sparsh Singhal ke liye - phone yahan dikhega plan track ke liye
+    return jsonify({"users": list(USER_DB.values())})
 
 if __name__ == "__main__": app.run()
