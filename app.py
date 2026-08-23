@@ -42,7 +42,7 @@ body{font-family:'Outfit',sans-serif; background: radial-gradient(ellipse at top
 <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
   <div class="lg:col-span-3 glass rounded-[24px] p-3 md:p-4 flex flex-col min-h-[75vh]">
     <div id="chat" class="flex-1 space-y-4 overflow-y-auto pr-1 max-h-[60vh] md:max-h-none">
-      <div class="bubble-ai p-4 rounded-2xl rounded-bl-none max-w-[92%] text-sm leading-relaxed">Hukm mere aaka! 🧞 <b>Mai Sparsh ka Genie hu!</b> Ab mai premium dikhta bhi hu aur rukta bhi nahi! 😎<br><span class="text-xs opacity-60">Pucho kuch bhi, mai pura bolke samjhaunga.</span></div>
+      <div class="bubble-ai p-4 rounded-2xl rounded-bl-none max-w-[92%] text-sm leading-relaxed">Hukm mere aaka! 🧞 <b>Mai Sparsh ka Genie hu!</b> Ab mai aapke saath hu! 😎<br><span class="text-xs opacity-60">Pucho kuch bhi, mai pura bolke samjhaunga.</span></div>
     </div>
     <div class="flex gap-2 mt-4 flex-wrap">
       <span class="chip glass px-3 py-1.5 rounded-full text-xs border border-white/10" onclick="quickAsk('Linked List samjha de masti me')">📚 Linked List</span>
