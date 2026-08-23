@@ -8,10 +8,10 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 # FAST MODEL - 5x tez, isliye sochne ka time khatam
 # Tu chahe toh yaha "gemini-3.6-flash" likh de, agar fail hua toh auto 8b pe aayega
 try:
-    model = genai.GenerativeModel("gemini-3.6-flash", generation_config={"temperature":0.75, "max_output_tokens":650})
+    model = genai.GenerativeModel("gemini-3.6-flash", generation_config={"temperature":0.75, "max_output_tokens":1000})
     print("Using 3.6-flash")
 except:
-    model = genai.GenerativeModel("gemini-1.5-flash-8b", generation_config={"temperature":0.75, "max_output_tokens":650})
+    model = genai.GenerativeModel("gemini-1.5-flash-8b", generation_config={"temperature":0.75, "max_output_tokens":1000})
     print("Fallback to 8b fast")
 
 active_users = {}
