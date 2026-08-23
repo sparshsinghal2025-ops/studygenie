@@ -31,7 +31,7 @@ body{font-family:'Outfit',sans-serif; background: radial-gradient(ellipse at top
   <div class="flex items-center gap-3">
     <img id="logo" src="/sparsh.jpg" class="w-12 h-12 md:w-14 md:h-14 rounded-full border-2 border-orange-500 object-cover cursor-pointer shadow-lg" title="Dev: 5x click">
     <div>
-      <h1 class="text-lg md:text-2xl font-black">StudyGenie <span class="text-orange-400">by Sparsh</span> <span id="devBadge" class="hidden text-[9px] bg-yellow-400 text-black px-2 py-0.5 rounded-full ml-1">DEV UNLIMITED 👑</span></h1>
+      <h1 class="text-lg md:text-2xl font-black">StudyGenie <span class="text-orange-400">by Sparsh Singhal</span> <span id="devBadge" class="hidden text-[9px] bg-yellow-400 text-black px-2 py-0.5 rounded-full ml-1">DEV UNLIMITED 👑</span></h1>
       <p class="text-[11px] md:text-xs opacity-70"><span id="wishLeft">10</span> wishes left • Level <span id="lvl">1</span> • <span id="rank">#1</span></p>
     </div>
   </div>
@@ -41,7 +41,7 @@ body{font-family:'Outfit',sans-serif; background: radial-gradient(ellipse at top
 <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
   <div class="lg:col-span-3 glass rounded-[24px] p-3 md:p-4 flex flex-col min-h-[75vh]">
     <div id="chat" class="flex-1 space-y-4 overflow-y-auto pr-1 max-h-[60vh] md:max-h-[65vh]">
-      <div class="bubble-ai p-4 rounded-2xl rounded-bl-none max-w-[92%] text-sm leading-relaxed">Hukm mere aaka! 🧞 <b>Mai Sparsh ka Genie hu!</b> Ab leaderboard 100% real hai, 10 free wishes milengi! 😎</div>
+      <div class="bubble-ai p-4 rounded-2xl rounded-bl-none max-w-[92%] text-sm leading-relaxed">Hukm mere aaka! 🧞 <b>Mai Sparsh Singhal ka Genie hu!</b> 10 free wishes milengi uske baad genie ki saari superpowers unlock karne ke liye genie ko recharge karna hoga! 😎</div>
     </div>
     <div class="flex gap-2 mt-4 flex-wrap">
       <span class="chip glass px-3 py-1.5 rounded-full text-xs border border-white/10" onclick="quickAsk('Linked List samjha de masti me')">📚 Linked List</span>
@@ -50,7 +50,7 @@ body{font-family:'Outfit',sans-serif; background: radial-gradient(ellipse at top
       <span class="chip glass px-3 py-1.5 rounded-full text-xs border border-white/10" onclick="quickAsk('Mera roast kar de')">🔥 Roast</span>
     </div>
     <div class="mt-4 flex gap-2 items-center glass rounded-full p-1.5">
-      <input id="q" class="flex-1 bg-transparent px-4 py-2 outline-none text-sm placeholder-white/40" placeholder="Bol aaka kya chahiye..." onkeypress="if(event.key==='Enter')ask()">
+      <input id="q" class="flex-1 bg-transparent px-4 py-2 outline-none text-sm placeholder-white/40" placeholder="Boliye mere aaka, kya chahiye..." onkeypress="if(event.key==='Enter')ask()">
       <button onclick="ask()" class="bg-gradient-to-r from-orange-500 to-orange-600 px-6 md:px-8 py-2.5 rounded-full font-black text-sm shadow-lg">GO</button>
     </div>
   </div>
