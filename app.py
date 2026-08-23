@@ -134,7 +134,7 @@ def ask_route():
     prompt = f"You are StudyGenie by Sparsh Singhal. User {name} asks: {q}. Answer in Hinglish, 180-220 words. Structure: 🔥Def -> 💡Example -> 🧠Feynman. Be funny alien genie. End with 'Aur hukm {name}? 😏'"
     try:
         response = client.models.generate_content(
-            model="gemini-1.5-flash",
+            model="gemini-3.6-flash",
             contents=prompt,
             config=types.GenerateContentConfig(
                 max_output_tokens=1000,
