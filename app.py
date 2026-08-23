@@ -16,22 +16,20 @@ HTML_PAGE = """
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;700;900&family=Space+Grotesk:wght@700&display=swap" rel="stylesheet">
 <style>
 *{font-family:'Outfit',sans-serif}
-body{background:#0a0a12; overflow-x:hidden}
-.bg-orb{position:fixed; border-radius:50%; filter:blur(80px); pointer-events:none; z-index:-1}
-.glass{backdrop-filter:blur(24px); border:1px solid rgba(255,255,255,0.08); background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))}
+body{background:#050507!important; overflow-x:hidden; color:white}
+.bg-orb{position:fixed; border-radius:50%; filter:blur(90px); pointer-events:none; z-index:-1}
+.glass{background: rgba(18,18,32,0.88)!important; backdrop-filter:blur(24px); border:1px solid rgba(255,122,0,0.15)!important; box-shadow: 0 8px 32px rgba(0,0,0,0.6)}
 .bubble-user{background: linear-gradient(135deg, #ff6a00, #ff9900); box-shadow: 0 8px 20px rgba(255,106,0,0.4)}
-.bubble-ai{background: #1a1a2e; border:1px solid #2a2a4a}
-.lamp{transition:0.4s cubic-bezier(.34,1.56,.64,1)}.lamp.off{filter:grayscale(1) opacity(0.3); transform:scale(0.8)}
+.bubble-ai{background: #141422; border:1px solid #2a2a4a}
+.lamp{transition:0.4s cubic-bezier(.34,1.56,.64,1)}.lamp.off{filter:grayscale(1) opacity(0.25); transform:scale(0.8)}
 .float{animation:float 3s ease-in-out infinite} @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-.glow{box-shadow:0 0 30px rgba(255,153,0,0.3)}
-.shine{position:relative; overflow:hidden}.shine:after{content:''; position:absolute; top:0; left:-100%; width:100%; height:100%; background:linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent); animation:shine 2.5s infinite} @keyframes shine{100%{left:100%}}
+.glow{box-shadow:0 0 25px rgba(255,153,0,0.5)}
 </style>
 </head>
-<body class="text-white p-2 md:p-4">
-<div class="bg-orb w-[600px] h-[600px] bg-[#ff6a00] opacity-20 -top-40 -left-40"></div>
-<div class="bg-orb w-[500px] h-[500px] bg-[#7c3aed] opacity-20 -bottom-20 -right-20"></div>
+<body class="p-2 md:p-4">
+<div class="bg-orb w-[700px] h-[700px] bg-[#ff6a00] opacity-[0.12] -top-40 -left-40"></div>
+<div class="bg-orb w-[600px] h-[600px] bg-[#7c3aed] opacity-[0.10] -bottom-20 -right-20"></div>
 
-<!-- HEADER - Game like -->
 <div class="glass rounded-[20px] px-4 py-3 flex justify-between items-center max-w-[1400px] mx-auto">
   <div class="flex items-center gap-3">
     <div class="relative"><img id="logo" src="/sparsh.jpg" class="w-11 h-11 rounded-[14px] border-2 border-orange-400 object-cover cursor-pointer glow"><div class="absolute -bottom-1 -right-1 w-4 h-4 bg-green-400 rounded-full border-2 border-black animate-pulse"></div></div>
@@ -42,67 +40,59 @@ body{background:#0a0a12; overflow-x:hidden}
   </div>
   <div class="flex items-center gap-2">
     <div class="hidden md:flex items-center gap-1 glass px-3 py-1.5 rounded-full"><span class="text-xs">✨</span><span id="wishLeft" class="text-xs font-black">10</span><span class="text-[10px] opacity-60">wishes</span></div>
-    <button id="voiceBtn" onclick="toggleVoice()" class="px-3 py-2 rounded-full text-xs font-bold bg-[#1e1e32] border border-white/10 hover:bg-white/10">🔊 ON</button>
+    <button id="voiceBtn" onclick="toggleVoice()" class="px-3 py-2 rounded-full text-xs font-bold bg-[#1e1e32] border border-white/10">🔊 ON</button>
   </div>
 </div>
 
 <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 max-w-[1400px] mx-auto mt-4">
-  <!-- CHAT - Main Stage -->
-  <div class="lg:col-span-8 glass rounded-[28px] p-3 md:p-5 flex flex-col h-[78vh] md:h-[82vh] shine">
+  <div class="lg:col-span-8 glass rounded-[28px] p-3 md:p-5 flex flex-col h-[78vh] md:h-[82vh]">
     <div id="chat" class="flex-1 overflow-y-auto space-y-4 pr-1">
-      <div class="flex gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-yellow-400 flex items-center justify-center text-sm shrink-0">🧞</div><div class="bubble-ai p-4 rounded-[20px] rounded-tl-[4px] max-w-[88%] text-[14px] leading-[1.6]"><b class="text-orange-400">Yo aaka! Sparsh ka Genie hazir hai! 🔮</b><br><br>10 jadooi chiraag mile hain, har sawal pe ek jalega. Khatam hue toh Genie Pro ban jaunga! <br><br><span class="text-xs opacity-70">💻 Coding likh = Code + Dry Run<br>📖 Theory likh = Trick + Yaad karne ka hack<br>🤖 Auto-detect on hai!</span></div></div>
+      <div class="flex gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-yellow-400 flex items-center justify-center text-sm shrink-0">🧞</div><div class="bubble-ai p-4 rounded-[20px] rounded-tl-[4px] max-w-[88%] text-[14px] leading-[1.6]"><b class="text-orange-400">Yo aaka! Sparsh ka Genie hazir hai! 🔮</b><br><br>10 jadooi chiraag mile hain, har sawal pe ek jalega. Khatam hue toh Genie Pro ban jaunga! <br><br><span class="text-xs opacity-70">💻 Coding = Code + Dry Run<br>📖 Theory = Trick + Hack<br>🤖 Auto-detect ON!</span></div></div>
     </div>
-    <!-- Quick Chips -->
     <div class="flex gap-2 mt-3 overflow-x-auto pb-1">
       <button onclick="quickAsk('Linked List samjha de masti me')" class="shrink-0 bg-[#1e1e32] hover:bg-orange-500/20 border border-white/10 px-3 py-2 rounded-full text-xs">💻 Linked List = Code</button>
-      <button onclick="quickAsk('Photosynthesis easy trick')" class="shrink-0 bg-[#1e1e32] hover:bg-violet-500/20 border border-white/10 px-3 py-2 rounded-full text-xs">🌿 Photosynthesis</button>
+      <button onclick="quickAsk('Photosynthesis easy trick')" class="shrink-0 bg-[#1e1e32] border border-white/10 px-3 py-2 rounded-full text-xs">🌿 Photosynthesis</button>
       <button onclick="quickAsk('Ek joke suna Genie style')" class="shrink-0 bg-[#1e1e32] border border-white/10 px-3 py-2 rounded-full text-xs">😂 Joke</button>
       <button onclick="quickAsk('Mera roast kar')" class="shrink-0 bg-[#1e1e32] border border-white/10 px-3 py-2 rounded-full text-xs">🔥 Roast Me</button>
     </div>
-    <!-- Input -->
-    <div class="mt-3 glass rounded-full p-1.5 flex items-center gap-2 bg-[#12121f]"><input id="q" class="flex-1 bg-transparent px-4 py-2.5 outline-none text-[14px] placeholder-white/30" placeholder="Boliye mere aaka, kya chahiye... ✨" onkeypress="if(event.key==='Enter')ask()"><button onclick="ask()" class="bg-white text-black w-10 h-10 rounded-full font-black hover:scale-105 transition">→</button></div>
+    <div class="mt-3 glass rounded-full p-1.5 flex items-center gap-2 bg-[#0f0f1a]"><input id="q" class="flex-1 bg-transparent px-4 py-2.5 outline-none text-[14px] placeholder-white/30" placeholder="Boliye mere aaka, kya chahiye... ✨" onkeypress="if(event.key==='Enter')ask()"><button onclick="ask()" class="bg-white text-black w-10 h-10 rounded-full font-black hover:scale-105 transition">→</button></div>
   </div>
 
-  <!-- RIGHT - Gamified Stats -->
   <div class="lg:col-span-4 space-y-4">
-    <!-- Wishes as Lamps -->
     <div class="glass rounded-[22px] p-4">
       <div class="flex justify-between items-center"><h3 class="font-black text-sm">🧞 Wishes</h3><span id="wishes" class="text-xs font-bold bg-black/40 px-2 py-1 rounded-full">0 / 10</span></div>
       <div id="lampRow" class="grid grid-cols-5 gap-2 mt-4"></div>
       <div class="h-2 bg-black/50 rounded-full mt-4 overflow-hidden"><div id="wishBar" class="h-full bg-gradient-to-r from-orange-500 to-yellow-400 transition-all duration-700" style="width:0%"></div></div>
       <p class="text-[11px] mt-2 opacity-50">10 ke baad Genie Pro maangega 💸</p>
     </div>
-
     <div class="glass rounded-[22px] p-4">
       <h3 class="font-black text-sm flex justify-between">🏆 Live Leaderboard <span class="text-[8px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full">LIVE REAL</span></h3>
-      <div id="board" class="mt-3 space-y-1.5"><p class="text-xs opacity-40">Tu pehla grinder hai 🔥 Sawal puch!</p></div>
+      <div id="board" class="mt-3 space-y-1.5"><p class="text-xs opacity-40">Tu pehla grinder hai 🔥</p></div>
       <div class="mt-3 text-[10px] opacity-30">Top grinders • Refresh 5s</div>
     </div>
-
     <div class="glass rounded-[22px] p-4 relative overflow-hidden">
       <div class="absolute w-24 h-24 bg-orange-500/20 blur-[20px] rounded-full -right-5 -top-5"></div>
       <div class="flex justify-between"><h3 class="font-bold text-sm">⚡ Level <span id="lvl">1</span></h3><span id="xpText" class="text-xs opacity-60">0 XP</span></div>
       <div class="flex items-center gap-3 mt-3">
         <div class="w-12 h-12 rounded-full border-[3px] border-orange-500/30 flex items-center justify-center font-black text-sm" id="levelRing">1</div>
-        <div class="flex-1"><div class="h-2.5 bg-black/50 rounded-full overflow-hidden"><div id="xpBar" class="h-full bg-gradient-to-r from-yellow-300 to-orange-500 transition-all duration-700" style="width:10%"></div></div><p class="text-[10px] mt-1 opacity-50"><span id="xp">0</span> / 100 XP to next level • +12 XP per Q</p></div>
+        <div class="flex-1"><div class="h-2.5 bg-black/50 rounded-full overflow-hidden"><div id="xpBar" class="h-full bg-gradient-to-r from-yellow-300 to-orange-500 transition-all" style="width:10%"></div></div><p class="text-[10px] mt-1 opacity-50"><span id="xp">0</span> / 100 XP • +12 XP per Q</p></div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- PRO MODAL - Sexy -->
-<div id="payModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,0.8); backdrop-filter:blur(16px)">
+<div id="payModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,0.85); backdrop-filter:blur(16px)">
   <div class="glass rounded-[28px] p-7 max-w-[360px] w-full border border-orange-500/20 text-center float">
     <div class="w-16 h-16 mx-auto rounded-[18px] bg-gradient-to-br from-orange-400 to-yellow-400 flex items-center justify-center text-2xl shadow-[0_0_30px_rgba(255,153,0,0.5)]">🧞‍♂️</div>
     <h2 class="mt-4 text-[22px] font-black leading-tight">Arre aaka, chiraag<br>khatam ho gaye! 🪔</h2>
     <p class="text-[13px] opacity-70 mt-2">10 free wishes done. Ab Genie unlimited power maang raha hai.</p>
     <div class="mt-5 bg-black/40 rounded-[16px] p-4 text-left text-[12px] space-y-2 border border-white/5">
-      <div class="flex gap-2">✅ <span><b>Unlimited</b> wishes - kabhi lock nahi</span></div>
-      <div class="flex gap-2">✅ <span><b>Voice</b> full speed, no queue</span></div>
-      <div class="flex gap-2">✅ <span><b>Top</b> leaderboard boost + badge</span></div>
+      <div class="flex gap-2">✅ <span><b>Unlimited</b> wishes</span></div>
+      <div class="flex gap-2">✅ <span><b>Voice</b> full speed</span></div>
+      <div class="flex gap-2">✅ <span><b>Top</b> leaderboard boost</span></div>
     </div>
-    <button onclick="buyPro()" class="w-full mt-5 bg-white text-black font-black py-3.5 rounded-full hover:scale-[1.02] transition">Unlock Pro - ₹99/month 🚀</button>
-    <button onclick="closePay()" class="w-full mt-2 text-xs opacity-50 py-2">Abhi nahi, thoda padh lu</button>
+    <button onclick="buyPro()" class="w-full mt-5 bg-white text-black font-black py-3.5 rounded-full">Unlock Pro - ₹99/month 🚀</button>
+    <button onclick="closePay()" class="w-full mt-2 text-xs opacity-50 py-2">Abhi nahi</button>
     <p class="text-[10px] mt-3 opacity-30">Dev? Logo pe 5x tap = free unlock</p>
   </div>
 </div>
@@ -113,12 +103,11 @@ let userId = localStorage.getItem('genie_userId') || 'user_'+Math.random().toStr
 localStorage.setItem('genie_userId', userId);
 let stats = JSON.parse(localStorage.getItem('genie_stats') || '{"xp":0,"level":1,"wishes":0,"streak":3}');
 let isDev = localStorage.getItem('isDev')==='true';
-
 function lamps(){
   let row=document.getElementById('lampRow'); row.innerHTML='';
   for(let i=0;i<10;i++){
     let used = i < stats.wishes &&!isDev;
-    row.innerHTML+=`<div class="lamp ${used?'off':''} w-8 h-8 rounded-[10px] bg-gradient-to-br from-orange-400 to-yellow-300 flex items-center justify-center text-[14px] shadow-lg">${used?'🪔':'🔥'}</div>`;
+    row.innerHTML+=`<div class="lamp ${used?'off':''} w-8 h-8 rounded-[10px] bg-gradient-to-br from-orange-400 to-yellow-300 flex items-center justify-center text-[14px] shadow-lg">${used?'💨':'🔥'}</div>`;
   }
 }
 function save(){localStorage.setItem('genie_stats', JSON.stringify(stats)); render();}
@@ -160,7 +149,7 @@ async function ask(){
   if(!isDev && stats.wishes>=10){document.getElementById('payModal').classList.remove('hidden'); return;}
   let chat=document.getElementById('chat');
   chat.innerHTML+=`<div class="flex justify-end"><div class="bubble-user px-4 py-3 rounded-[18px] rounded-br-[4px] max-w-[80%] text-[13px] font-medium">${q}</div></div>`; input.value='';
-  stats.wishes++; stats.xp+=12; if(stats.xp>=100){stats.level++; stats.xp=0; confetti();} save();
+  stats.wishes++; stats.xp+=12; if(stats.xp>=100){stats.level++; stats.xp=0;} save();
   fetch('/update_xp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:userId, xp:(stats.level-1)*100+stats.xp, level:stats.level})});
   chat.innerHTML+=`<div id="typing" class="flex gap-3"><div class="w-8 h-8 rounded-full bg-[#1a1a2e] flex items-center justify-center">🧞</div><div class="bubble-ai px-4 py-3 rounded-[18px] text-xs opacity-60">Genie type kar raha hai...</div></div>`; chat.scrollTop=chat.scrollHeight;
   let res=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q})}); let data=await res.json();
@@ -168,7 +157,6 @@ async function ask(){
   let id=Date.now(); chat.innerHTML+=`<div class="flex gap-3"><div class="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-yellow-400 flex items-center justify-center text-[12px] shrink-0">🧞</div><div class="bubble-ai p-4 rounded-[18px] rounded-tl-[4px] max-w-[88%] text-[13px] leading-relaxed whitespace-pre-wrap"><span id="ans-${id}">${data.ans}</span><div class="mt-3 flex gap-2"><button onclick="speakQueue(document.getElementById('ans-${id}').innerText)" class="text-[11px] bg-white/10 px-3 py-1 rounded-full">🔊 Suna de</button><button onclick="navigator.clipboard.writeText(document.getElementById('ans-${id}').innerText)" class="text-[11px] bg-white/10 px-3 py-1 rounded-full">📋 Copy</button></div></div></div>`;
   chat.scrollTop=chat.scrollHeight; speakQueue(data.ans);
 }
-function confetti(){ /* simple emoji burst */ let e=document.createElement('div'); e.innerText='🎉🎉🎉 Level Up!'; e.className='fixed top-20 left-1/2 -translate-x-1/2 bg-yellow-400 text-black px-4 py-2 rounded-full font-black z-50'; document.body.appendChild(e); setTimeout(()=>e.remove(),2000);}
 render(); setInterval(loadBoard,5000);
 </script></body></html>
 """
