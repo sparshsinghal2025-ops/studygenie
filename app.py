@@ -15,7 +15,8 @@ HTML_PAGE = """
 <script src="https://cdn.tailwindcss.com"></script>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@800&family=Outfit:wght@800;900&display=swap" rel="stylesheet">
 <style>
-body{background:#050507!important; color:#fff; background-image: radial-gradient(circle at 50% 0%, #1a1208 0%, #050507 60%); overflow:hidden}
+/* FIXED SCROLL */
+body{background:#050507!important; color:#fff; background-image: radial-gradient(circle at 50% 0%, #1a1208 0%, #050507 60%); overflow-y:auto!important; overflow-x:hidden; min-height:100vh}
 .mono{font-family:'JetBrains Mono',monospace}
 .hud{background:rgba(17,17,19,0.95); border:1px solid #232326; backdrop-filter:blur(16px); box-shadow:0 0 0 1px rgba(255,77,0,0.1) inset}
 .bubble-user{background:#fff; color:#000; border-radius:14px 14px 2px 14px; font-weight:900}
@@ -26,11 +27,14 @@ body{background:#050507!important; color:#fff; background-image: radial-gradient
 .progress>div{height:100%; background:linear-gradient(90deg,#ff4d00,#ff8a00); box-shadow:0 0 10px #ff4d00}
 .shake{animation:shake 0.3s} @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}
 .hitpop{animation:pop 0.4s cubic-bezier(.175,.885,.32,1.275)} @keyframes pop{0%{transform:scale(0.5)}100%{transform:scale(1)}}
+/* CHAT SCROLL FIX */
+#chat{max-height:55vh; overflow-y:auto!important; padding-bottom:20px; scroll-behavior:smooth}
+@media(min-width:1024px){#chat{max-height:62vh}}
 </style>
 </head>
 <body class="p-3">
-<div id="main" class="max-w-[1450px] mx-auto">
-<div class="hud rounded-[16px] px-5 py-3 flex justify-between items-center">
+<div id="main" class="max-w-[1450px] mx-auto pb-10">
+<div class="hud rounded-[16px] px-5 py-3 flex justify-between items-center sticky top-3 z-30">
   <div class="flex items-center gap-6">
     <img id="logo" src="/sparsh.jpg" class="w-28 h-28 rounded-[16px] border-[4px] border-[#ff4d00] object-cover shadow-[0_0_40px_rgba(255,77,0,0.7)] cursor-pointer hitpop">
     <div><h1 class="font-black text-[22px] tracking-widest leading-none">STUDYGENIE <span class="text-[#ff4d00]">: BATTLE</span></h1><p class="mono text-[12px] text-[#ff8a00] mt-1">BY SPARSH SINGHAL // FOUNDER</p><div class="flex items-center gap-3 mt-3"><span class="mono text-[10px] text-zinc-400">SHIELD</span><div class="w-40 progress"><div id="xpBarTop" style="width:0%"></div></div><span id="xpText" class="mono text-[11px] font-bold">0/100 XP</span></div><p class="mono text-[9px] text-zinc-600 mt-1">LVL <span id="lvlTop">1</span> // RANK #<span id="rankTop">?</span></p></div>
@@ -38,8 +42,8 @@ body{background:#050507!important; color:#fff; background-image: radial-gradient
   <div class="flex items-center gap-5"><div class="mono text-right"><div class="text-[10px] text-zinc-500 tracking-widest">AMMO</div><div class="font-black text-3xl leading-none"><span id="wishLeft">10</span>/10</div></div><button id="voiceBtn" onclick="toggleVoice()" class="w-12 h-12 bg-[#1e1e22] rounded-[10px] text-xl border border-zinc-800">🔊</button></div>
 </div>
 
-<div class="grid grid-cols-12 gap-3 mt-3 h-[calc(100vh-130px)]">
-  <div class="col-span-12 lg:col-span-3 space-y-3 overflow-y-auto pr-1">
+<div class="grid grid-cols-12 gap-3 mt-3">
+  <div class="col-span-12 lg:col-span-3 space-y-3">
     <div class="hud rounded-[14px] p-4"><p class="mono text-[10px] text-zinc-500 tracking-widest">> MISSIONS BY SPARSH SINGHAL</p>
       <div class="mt-4 bg-black p-3.5 rounded-[10px] border-l-[3px] border-[#ff4d00]"><div class="flex justify-between mono text-[11px] font-bold"><span>ELIMINATE 3 DOUBTS</span><span id="q1t">0/3</span></div><div class="progress mt-2.5"><div id="q1b" style="width:0%"></div></div></div>
       <div class="mt-3 bg-black p-3.5 rounded-[10px] border-l-[3px] border-zinc-700"><div class="flex justify-between mono text-[11px] font-bold"><span>CODE KILL (1)</span><span id="q2t">0/1</span></div><div class="progress mt-2.5"><div id="q2b" style="width:0%"></div></div></div>
@@ -49,13 +53,13 @@ body{background:#050507!important; color:#fff; background-image: radial-gradient
   </div>
 
   <div class="col-span-12 lg:col-span-9 hud rounded-[16px] p-4 flex flex-col">
-    <div id="chat" class="flex-1 overflow-y-auto space-y-5 pr-2"></div>
-    <div class="flex gap-2.5 mt-4">
+    <div id="chat" class="flex-1 space-y-5 pr-2"></div>
+    <div class="flex gap-2.5 mt-4 flex-wrap">
       <button onclick="quickAsk('Linked List ka code de with dry run')" class="mono text-[11px] bg-white text-black px-5 py-3 rounded-[10px] font-black">[E] CODE + DRY RUN</button>
       <button onclick="quickAsk('Ek tough topic ko action me samjha')" class="mono text-[11px] bg-[#1e1e22] border border-zinc-800 px-5 py-3 rounded-[10px] font-bold">[Q] CONCEPT RAID</button>
       <button onclick="quickAsk('Mera savage roast kar headshot de')" class="mono text-[11px] bg-[#1e1e22] border border-zinc-800 px-5 py-3 rounded-[10px] font-bold">[R] ROAST</button>
     </div>
-    <div class="mt-4 bg-black border-2 border-[#2a2a2e] rounded-[12px] p-1.5 flex items-center gap-2 focus-within:border-[#ff4d00]/50 transition"><span class="mono text-xs px-3 text-[#ff4d00] font-black">></span><input id="q" class="flex-1 bg-transparent mono text-[15px] outline-none py-3.5 placeholder:text-zinc-600" placeholder="ENTER COMMAND BY SPARSH SINGHAL... (e.g. Recursion like gunfight)" onkeypress="if(event.key==='Enter')ask()"><button onclick="ask()" class="bg-[#ff4d00] hover:bg-[#ff5e1a] mono font-black w-20 h-12 rounded-[10px] shadow-[0_0_20px_rgba(255,77,0,0.5)]">FIRE 🔫</button></div>
+    <div class="mt-4 bg-black border-2 border-[#2a2a2e] rounded-[12px] p-1.5 flex items-center gap-2 focus-within:border-[#ff4d00]/50 transition sticky bottom-3"><span class="mono text-xs px-3 text-[#ff4d00] font-black">></span><input id="q" class="flex-1 bg-transparent mono text-[15px] outline-none py-3.5 placeholder:text-zinc-600" placeholder="ENTER COMMAND BY SPARSH SINGHAL... (e.g. arrays kya hai)" onkeypress="if(event.key==='Enter')ask()"><button onclick="ask()" class="bg-[#ff4d00] hover:bg-[#ff5e1a] mono font-black w-20 h-12 rounded-[10px] shadow-[0_0_20px_rgba(255,77,0,0.5)]">FIRE 🔫</button></div>
   </div>
 </div>
 </div>
@@ -114,13 +118,14 @@ async function ask(){
   let chat=document.getElementById('chat'); chat.innerHTML+=`<div class="flex justify-end hitpop"><div class="bubble-user px-5 py-3 text-[14px] mono">${q}</div></div>`; input.value='';
   stats.wishes++; stats.q1=Math.min(3,stats.q1+1); if(/code|list|program/i.test(q)) stats.q2=1; stats.xp+=12; if(stats.xp>=100){stats.level++; stats.xp=0; playSound(1200,'sine',0.6); chat.innerHTML+=`<div class="text-center mono text-[#ff4d00] font-black text-[13px] py-3 animate-pulse">★★ LEVEL UP BY SPARSH SINGHAL - LVL ${stats.level} - NEW WEAPON UNLOCKED ★★</div>`;} save();
   fetch('/update_xp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:userId, xp:(stats.level-1)*100+stats.xp})});
-  chat.innerHTML+=`<div id="typing" class="flex gap-3"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-4 mono text-[12px] text-zinc-400 animate-pulse">> SPARSH SINGHAL'S GENIE AIMING... LOCKING TARGET...</div></div>`; chat.scrollTop=chat.scrollHeight;
+  chat.innerHTML+=`<div id="typing" class="flex gap-3"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-4 mono text-[12px] text-zinc-400 animate-pulse">> SPARSH SINGHAL'S GENIE AIMING...</div></div>`; chat.scrollTop=chat.scrollHeight;
   let res=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q})}); let data=await res.json();
   document.getElementById('typing')?.remove(); playSound(500,'sine',0.2);
-  chat.innerHTML+=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover shadow-[0_0_15px_rgba(255,77,0,0.5)]"><div class="bubble-ai p-4 max-w-[78%] text-[14px] leading-relaxed whitespace-pre-wrap">${data.ans}<div class="mt-3 flex items-center gap-2 mono text-[10px] text-zinc-500"><span class="bg-[#ff4d00] text-white px-2 py-0.5 rounded-[4px]">BY SPARSH SINGHAL</span><span>HIT CONFIRMED +12 XP // ENEMY DOWN ✓</span></div></div></div>`; chat.scrollTop=chat.scrollHeight; speakQueue(data.ans);
+  chat.innerHTML+=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover shadow-[0_0_15px_rgba(255,77,0,0.5)]"><div class="bubble-ai p-4 max-w-[78%] text-[14px] leading-relaxed whitespace-pre-wrap">${data.ans}<div class="mt-3 flex items-center gap-2 mono text-[10px] text-zinc-500"><span class="bg-[#ff4d00] text-white px-2 py-0.5 rounded-[4px]">BY SPARSH SINGHAL</span><span>HIT CONFIRMED +12 XP</span></div></div></div>`;
+  chat.scrollTop=chat.scrollHeight; speakQueue(data.ans);
 }
 let sec=86399; setInterval(()=>{sec--; let h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60; document.getElementById('timer').innerText=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;},1000);
-document.getElementById('chat').innerHTML=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-5 max-w-[78%] text-[15px] leading-relaxed">WELCOME TO BATTLEFIELD, AAKA. I AM SPARSH SINGHAL'S GENIE.<br><br>🔫 Har doubt ek enemy hai. Har answer pe +12 XP, Shield badhega.<br>🪔 Ammo 10 ke baad khatam — Pro leke unlimited reload kar by Sparsh Singhal.<br><br><span class="mono text-[11px] text-zinc-500">TIP: FIRE dabate hi screen shake + hit sound ayega. 5x logo click = GOD MODE (Password Protected).</span></div></div>`; render();
+document.getElementById('chat').innerHTML=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-5 max-w-[78%] text-[15px] leading-relaxed">WELCOME TO BATTLEFIELD, AAKA. I AM SPARSH SINGHAL'S GENIE.<br><br>🔫 Har doubt ek enemy hai. Har answer pe +12 XP, Shield badhega.<br>🪔 Ammo 10 ke baad khatam — Pro leke unlimited reload kar by Sparsh Singhal.</div></div>`; render();
 </script></body></html>
 """
 
