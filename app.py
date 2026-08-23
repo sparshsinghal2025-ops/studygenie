@@ -24,7 +24,25 @@ const DEV_CODE = "genie2006";
 function isFounder(){ return localStorage.getItem("sg_is_founder")==="true"; }
 function updateUI(){ let founder = isFounder(); document.getElementById('founderTag').classList.toggle('hidden',!founder); if(founder){ document.getElementById('wishText').innerText='∞ Unlimited'; document.getElementById('wishBar').style.width='100%'; document.getElementById('wishBar').className='h-full bg-gradient-to-r from-green-500 to-emerald-400'; document.getElementById('bat').innerText='∞'; } else { document.getElementById('wishText').innerText=store.c+'/'+WISH_LIMIT; document.getElementById('wishBar').style.width=(store.c/WISH_LIMIT*100)+'%'; document.getElementById('bat').innerText=(100-store.c*10)+'%'; } document.getElementById('xpBar').style.width=(store.xp%100)+'%'; document.getElementById('xpText').innerText=store.xp+' XP'; document.getElementById('streakTop').innerText='🔥 '+store.streak+' streak'; document.getElementById('boardText').innerText=`You - ${store.xp} XP`; if(!founder && store.c>=WISH_LIMIT) document.getElementById('payModal').classList.add('active'); }
 function resetWishes(){store.c=0; localStorage.setItem("sg_final", JSON.stringify(store)); document.getElementById('payModal').classList.remove('active'); updateUI();}
-function speak(t){try{speechSynthesis.cancel(); let u=new SpeechSynthesisUtterance(t.replace(/<[^>]*>/g,'').slice(0,350)); u.lang='hi-IN'; u.rate=1.05; speechSynthesis.speak(u);}catch{}}
+
+// FIXED SPEAK - Ab pura bolega, aadha nahi
+function speak(t){
+  try{
+    speechSynthesis.cancel();
+    let clean = t.replace(/<[^>]*>/g,'');
+    let parts = clean.match(/[^.!?।]+[.!?।]+|[^.!?।]+$/g) || [clean];
+    let i=0;
+    function next(){
+      if(i>=parts.length) return;
+      let u=new SpeechSynthesisUtterance(parts[i].trim());
+      u.lang='hi-IN'; u.rate=1.05;
+      u.onend=()=>{i++; next();};
+      speechSynthesis.speak(u);
+    }
+    next();
+  }catch{}
+}
+
 async function ask(){
   let q=document.getElementById('q').value.trim(); if(!q) return;
   if(q.toLowerCase() === DEV_CODE){
