@@ -24,6 +24,7 @@ body{background:#050507!important; overflow-x:hidden; color:white}
 .lamp{transition:0.4s cubic-bezier(.34,1.56,.64,1)}.lamp.off{filter:grayscale(1) opacity(0.25); transform:scale(0.8)}
 .float{animation:float 3s ease-in-out infinite} @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
 .glow{box-shadow:0 0 25px rgba(255,153,0,0.5)}
+.custom-scroll::-webkit-scrollbar{width:4px}.custom-scroll::-webkit-scrollbar-thumb{background:#ff6a00; border-radius:10px}
 </style>
 </head>
 <body class="p-2 md:p-4">
@@ -63,37 +64,62 @@ body{background:#050507!important; overflow-x:hidden; color:white}
       <div class="flex justify-between items-center"><h3 class="font-black text-sm">🧞 Wishes</h3><span id="wishes" class="text-xs font-bold bg-black/40 px-2 py-1 rounded-full">0 / 10</span></div>
       <div id="lampRow" class="grid grid-cols-5 gap-2 mt-4"></div>
       <div class="h-2 bg-black/50 rounded-full mt-4 overflow-hidden"><div id="wishBar" class="h-full bg-gradient-to-r from-orange-500 to-yellow-400 transition-all duration-700" style="width:0%"></div></div>
-      <p class="text-[11px] mt-2 opacity-50">10 ke baad Genie Pro maangega 💸</p>
+      <p class="text-[11px] mt-2 opacity-50">10 ke baad Genie Pro ₹49 me 💸</p>
     </div>
     <div class="glass rounded-[22px] p-4">
       <h3 class="font-black text-sm flex justify-between">🏆 Live Leaderboard <span class="text-[8px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full">LIVE REAL</span></h3>
       <div id="board" class="mt-3 space-y-1.5"><p class="text-xs opacity-40">Tu pehla grinder hai 🔥</p></div>
-      <div class="mt-3 text-[10px] opacity-30">Top grinders • Refresh 5s</div>
     </div>
     <div class="glass rounded-[22px] p-4 relative overflow-hidden">
       <div class="absolute w-24 h-24 bg-orange-500/20 blur-[20px] rounded-full -right-5 -top-5"></div>
       <div class="flex justify-between"><h3 class="font-bold text-sm">⚡ Level <span id="lvl">1</span></h3><span id="xpText" class="text-xs opacity-60">0 XP</span></div>
       <div class="flex items-center gap-3 mt-3">
         <div class="w-12 h-12 rounded-full border-[3px] border-orange-500/30 flex items-center justify-center font-black text-sm" id="levelRing">1</div>
-        <div class="flex-1"><div class="h-2.5 bg-black/50 rounded-full overflow-hidden"><div id="xpBar" class="h-full bg-gradient-to-r from-yellow-300 to-orange-500 transition-all" style="width:10%"></div></div><p class="text-[10px] mt-1 opacity-50"><span id="xp">0</span> / 100 XP • +12 XP per Q</p></div>
+        <div class="flex-1"><div class="h-2.5 bg-black/50 rounded-full overflow-hidden"><div id="xpBar" class="h-full bg-gradient-to-r from-yellow-300 to-orange-500 transition-all" style="width:10%"></div></div><p class="text-[10px] mt-1 opacity-50"><span id="xp">0</span> / 100 XP</p></div>
       </div>
     </div>
   </div>
 </div>
 
-<div id="payModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,0.85); backdrop-filter:blur(16px)">
-  <div class="glass rounded-[28px] p-7 max-w-[360px] w-full border border-orange-500/20 text-center float">
-    <div class="w-16 h-16 mx-auto rounded-[18px] bg-gradient-to-br from-orange-400 to-yellow-400 flex items-center justify-center text-2xl shadow-[0_0_30px_rgba(255,153,0,0.5)]">🧞‍♂️</div>
+<!-- 28 FEATURES PRO MODAL ₹49 -->
+<div id="payModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,0.88); backdrop-filter:blur(18px)">
+  <div class="glass rounded-[28px] p-6 max-w-[420px] w-full border border-orange-500/25 text-center flex flex-col max-h-[90vh]">
+    <div class="w-16 h-16 mx-auto rounded-[18px] bg-gradient-to-br from-orange-400 to-yellow-400 flex items-center justify-center text-2xl shadow-[0_0_30px_rgba(255,153,0,0.5)] shrink-0">🧞‍♂️</div>
     <h2 class="mt-4 text-[22px] font-black leading-tight">Arre aaka, chiraag<br>khatam ho gaye! 🪔</h2>
-    <p class="text-[13px] opacity-70 mt-2">10 free wishes done. Ab Genie unlimited power maang raha hai.</p>
-    <div class="mt-5 bg-black/40 rounded-[16px] p-4 text-left text-[12px] space-y-2 border border-white/5">
-      <div class="flex gap-2">✅ <span><b>Unlimited</b> wishes</span></div>
-      <div class="flex gap-2">✅ <span><b>Voice</b> full speed</span></div>
-      <div class="flex gap-2">✅ <span><b>Top</b> leaderboard boost</span></div>
+    <p class="text-[13px] opacity-70 mt-2">10 free wishes done. Ab Pro bano toh ye 28 powers milengi 👇</p>
+    <div class="mt-4 bg-black/50 rounded-[16px] p-4 text-left text-[12px] space-y-2 border border-white/5 overflow-y-auto max-h-[38vh] custom-scroll">
+      <div class="flex gap-2">✅ <b>Unlimited</b> wishes - No limit</div>
+      <div class="flex gap-2">✅ <b>Voice</b> full speed + Hindi+English</div>
+      <div class="flex gap-2">✅ <b>Top</b> leaderboard boost & badge</div>
+      <div class="flex gap-2">✅ <b>PDF Upload</b> - Notes se direct Q/A</div>
+      <div class="flex gap-2">✅ <b>Image Doubt</b> - Photo kheecho, solution lo</div>
+      <div class="flex gap-2">✅ <b>Code Execution</b> - Python/C++ run inside</div>
+      <div class="flex gap-2">✅ <b>Dry Run Visualizer</b> - Animation</div>
+      <div class="flex gap-2">✅ <b>Memory Retention</b> - Genie yaad rakhega</div>
+      <div class="flex gap-2">✅ <b>Personal Notes</b> - Auto summary</div>
+      <div class="flex gap-2">✅ <b>Flashcards</b> - 1-click revision</div>
+      <div class="flex gap-2">✅ <b>Mock Tests</b> - Daily 10Q test</div>
+      <div class="flex gap-2">✅ <b>Trick Generator</b> - Har theory ka jugaad</div>
+      <div class="flex gap-2">✅ <b>Roast Mode Pro</b> - Ultra savage</div>
+      <div class="flex gap-2">✅ <b>Joke + Meme</b> - Study break</div>
+      <div class="flex gap-2">✅ <b>No Ads</b> - Clean Genie</div>
+      <div class="flex gap-2">✅ <b>Priority Speed</b> - 2x fast answers</div>
+      <div class="flex gap-2">✅ <b>Doubt Chain</b> - Follow-up unlimited</div>
+      <div class="flex gap-2">✅ <b>Formula Sheet</b> - Auto PDF export</div>
+      <div class="flex gap-2">✅ <b>Chapter Wise</b> - Class 6-12 mapping</div>
+      <div class="flex gap-2">✅ <b>PYQ Solver</b> - Previous year papers</div>
+      <div class="flex gap-2">✅ <b>Code Optimizer</b> - TLE se bachao</div>
+      <div class="flex gap-2">✅ <b>Error Finder</b> - Bug dhoonde</div>
+      <div class="flex gap-2">✅ <b>Concept Map</b> - Mindmap banega</div>
+      <div class="flex gap-2">✅ <b>Voice Doubt</b> - Bolo, Genie sunega</div>
+      <div class="flex gap-2">✅ <b>Share Chat</b> - Dosto ko bhejo</div>
+      <div class="flex gap-2">✅ <b>Streak Freeze</b> - 1 din miss maaf</div>
+      <div class="flex gap-2">✅ <b>Dark Pro Theme</b> - Neon Genie</div>
+      <div class="flex gap-2">✅ <b>Sparsh Support</b> - Direct founder chat</div>
     </div>
-    <button onclick="buyPro()" class="w-full mt-5 bg-white text-black font-black py-3.5 rounded-full">Unlock Pro - ₹99/month 🚀</button>
-    <button onclick="closePay()" class="w-full mt-2 text-xs opacity-50 py-2">Abhi nahi</button>
-    <p class="text-[10px] mt-3 opacity-30">Dev? Logo pe 5x tap = free unlock</p>
+    <button onclick="buyPro()" class="w-full mt-5 bg-white text-black font-black py-3.5 rounded-full shrink-0">Unlock All 28 Powers - ₹49/month 🚀</button>
+    <button onclick="closePay()" class="w-full mt-2 text-xs opacity-50 py-2 shrink-0">Abhi nahi</button>
+    <p class="text-[10px] mt-2 opacity-30 shrink-0">Dev? Logo pe 5x tap = free unlock</p>
   </div>
 </div>
 
@@ -142,7 +168,7 @@ function clean(t){return t.replace(/<[^>]*>/g,'').replace(/[*#_`~]/g,'').replace
 function speakQueue(t){if(!voiceOn) return; let s=clean(t).match(/[^.!?]+[.!?]+|[\\s\\S]{1,140}(?=\\s|$)/g)||[clean(t)]; queue.push(...s); if(!isSpeaking) playNext();}
 function playNext(){if(!queue.length){isSpeaking=false; return;} isSpeaking=true; let u=new SpeechSynthesisUtterance(queue.shift()); u.lang='hi-IN'; u.rate=1.05; u.onend=()=>playNext(); u.onerror=()=>playNext(); synth.speak(u);}
 function closePay(){document.getElementById('payModal').classList.add('hidden');}
-function buyPro(){alert("Razorpay yahan lagega!"); closePay();}
+function buyPro(){alert("Pro - ₹49/month! Razorpay yahan lagega"); closePay();}
 function quickAsk(t){document.getElementById('q').value=t; ask();}
 async function ask(){
   let input=document.getElementById('q'); let q=input.value.trim(); if(!q) return;
