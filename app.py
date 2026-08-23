@@ -33,7 +33,7 @@ body{background:#050507!important; color:#fff; background-image: radial-gradient
 <div class="hud rounded-[16px] px-5 py-3 flex justify-between items-center">
   <div class="flex items-center gap-6">
     <img id="logo" src="/sparsh.jpg" class="w-28 h-28 rounded-[16px] border-[4px] border-[#ff4d00] object-cover shadow-[0_0_40px_rgba(255,77,0,0.7)] cursor-pointer hitpop">
-    <div><h1 class="font-black text-[22px] tracking-widest leading-none">STUDYGENIE <span class="text-[#ff4d00]">: BATTLE</span></h1><p class="mono text-[12px] text-[#ff8a00] mt-1">BY SPARSH SINGHAL // FOUNDER</p><div class="flex items-center gap-3 mt-3"><span class="mono text-[10px] text-zinc-400">SHIELD</span><div class="w-40 progress"><div id="xpBarTop" style="width:0%"></div></div><span id="xpText" class="mono text-[11px] font-bold">0/100 XP</span></div><p class="mono text-[9px] text-zinc-600 mt-1">LVL <span id="lvlTop">1</span> // RANK #<span id="rankTop">?</span> // 5x CLICK LOGO = GOD MODE</p></div>
+    <div><h1 class="font-black text-[22px] tracking-widest leading-none">STUDYGENIE <span class="text-[#ff4d00]">: BATTLE</span></h1><p class="mono text-[12px] text-[#ff8a00] mt-1">BY SPARSH SINGHAL // FOUNDER</p><div class="flex items-center gap-3 mt-3"><span class="mono text-[10px] text-zinc-400">SHIELD</span><div class="w-40 progress"><div id="xpBarTop" style="width:0%"></div></div><span id="xpText" class="mono text-[11px] font-bold">0/100 XP</span></div><p class="mono text-[9px] text-zinc-600 mt-1">LVL <span id="lvlTop">1</span> // RANK #<span id="rankTop">?</span></p></div>
   </div>
   <div class="flex items-center gap-5"><div class="mono text-right"><div class="text-[10px] text-zinc-500 tracking-widest">AMMO</div><div class="font-black text-3xl leading-none"><span id="wishLeft">10</span>/10</div></div><button id="voiceBtn" onclick="toggleVoice()" class="w-12 h-12 bg-[#1e1e22] rounded-[10px] text-xl border border-zinc-800">🔊</button></div>
 </div>
@@ -84,7 +84,23 @@ function lamps(){let r=document.getElementById('lampRow'); r.innerHTML=''; for(l
 function save(){localStorage.setItem('genie_stats',JSON.stringify(stats)); render();}
 function render(){document.getElementById('wishLeft').innerText=isDev?'∞':10-stats.wishes; document.getElementById('lvlTop').innerText=stats.level; document.getElementById('xpBarTop').style.width=stats.xp+'%'; document.getElementById('xpText').innerText=stats.xp+'/100 XP'; document.getElementById('q1t').innerText=stats.q1+'/3'; document.getElementById('q1b').style.width=stats.q1/3*100+'%'; document.getElementById('q2t').innerText=stats.q2+'/1'; document.getElementById('q2b').style.width=stats.q2*100+'%'; lamps(); loadBoard();}
 async function loadBoard(){try{let r=await fetch('/leaderboard?uid='+userId); let d=await r.json(); document.getElementById('rankTop').innerText=d.findIndex(u=>u.id===userId)+1||'-'; document.getElementById('board').innerHTML=d.slice(0,5).map((u,i)=>`<div class="flex justify-between p-2.5 bg-black rounded-[8px] border ${u.id===userId?'border-[#ff4d00]/50':'border-transparent'}"><span>${i==0?'👑':''} ${i+1}. ${u.name} ${u.id===userId?'[YOU]':''}</span><span class="text-[#ff4d00] font-bold">${u.xp}</span></div>`).join('');}catch{}}
-let c=0; document.getElementById('logo').addEventListener('click',()=>{playSound(800,'square',0.1); c++; if(c>=5){isDev=!isDev; localStorage.setItem('isDev',isDev); playSound(isDev?1200:400,'sawtooth',0.4); alert(isDev?'GOD MODE ON - Sparsh Singhal Infinite Ammo':'GOD MODE OFF - 10 Ammo'); render(); c=0;} setTimeout(()=>c=0,2000);});
+let c=0;
+document.getElementById('logo').addEventListener('click',()=>{
+  playSound(800,'square',0.1); c++;
+  if(c>=5){
+    let pass = prompt("DEV ACCESS BY SPARSH SINGHAL - Enter Secret Code:");
+    if(pass === "sparsh123"){
+      isDev=!isDev; localStorage.setItem('isDev',isDev);
+      playSound(isDev?1200:400,'sawtooth',0.4);
+      alert(isDev?'GOD MODE ON - Welcome Founder Sparsh Singhal':'GOD MODE OFF');
+      render();
+    } else if(pass!== null) {
+      alert("ACCESS DENIED! Only Sparsh Singhal can access.");
+    }
+    c=0;
+  }
+  setTimeout(()=>c=0,2000);
+});
 function toggleVoice(){voiceOn=!voiceOn; document.getElementById('voiceBtn').innerText=voiceOn?'🔊':'🔇'; if(!voiceOn){synth.cancel(); queue=[];}}
 function speakQueue(t){if(!voiceOn) return; queue.push(...t.split(/(?<=[.!?])\\s+/)); if(!isSpeaking) playNext();}
 function playNext(){if(!queue.length){isSpeaking=false; return;} isSpeaking=true; let u=new SpeechSynthesisUtterance(queue.shift()); u.lang='hi-IN'; u.rate=1.05; u.onend=()=>playNext(); synth.speak(u);}
@@ -104,7 +120,7 @@ async function ask(){
   chat.innerHTML+=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover shadow-[0_0_15px_rgba(255,77,0,0.5)]"><div class="bubble-ai p-4 max-w-[78%] text-[14px] leading-relaxed whitespace-pre-wrap">${data.ans}<div class="mt-3 flex items-center gap-2 mono text-[10px] text-zinc-500"><span class="bg-[#ff4d00] text-white px-2 py-0.5 rounded-[4px]">BY SPARSH SINGHAL</span><span>HIT CONFIRMED +12 XP // ENEMY DOWN ✓</span></div></div></div>`; chat.scrollTop=chat.scrollHeight; speakQueue(data.ans);
 }
 let sec=86399; setInterval(()=>{sec--; let h=Math.floor(sec/3600), m=Math.floor((sec%3600)/60), s=sec%60; document.getElementById('timer').innerText=`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;},1000);
-document.getElementById('chat').innerHTML=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-5 max-w-[78%] text-[15px] leading-relaxed">WELCOME TO BATTLEFIELD, AAKA. I AM SPARSH SINGHAL'S GENIE.<br><br>🔫 Har doubt ek enemy hai. Har answer pe +12 XP, Shield badhega.<br>🪔 Ammo 10 ke baad khatam — Pro leke unlimited reload kar by Sparsh Singhal.<br><br><span class="mono text-[11px] text-zinc-500">TIP: FIRE dabate hi screen shake + hit sound ayega. 5x logo click = GOD MODE.</span></div></div>`; render();
+document.getElementById('chat').innerHTML=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-5 max-w-[78%] text-[15px] leading-relaxed">WELCOME TO BATTLEFIELD, AAKA. I AM SPARSH SINGHAL'S GENIE.<br><br>🔫 Har doubt ek enemy hai. Har answer pe +12 XP, Shield badhega.<br>🪔 Ammo 10 ke baad khatam — Pro leke unlimited reload kar by Sparsh Singhal.<br><br><span class="mono text-[11px] text-zinc-500">TIP: FIRE dabate hi screen shake + hit sound ayega. 5x logo click = GOD MODE (Password Protected).</span></div></div>`; render();
 </script></body></html>
 """
 
