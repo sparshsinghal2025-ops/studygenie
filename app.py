@@ -1,13 +1,34 @@
-import os
+import os, re
 from flask import Flask, request, jsonify, send_from_directory, render_template_string
 from google import genai
 
 app = Flask(__name__)
-API_KEY = os.environ.get("GOOGLE_API_KEY", "")
+API_KEY = os.environ.get("GOOGLE_API_KEY", os.environ.get("GEMINI_KEY", ""))
 client = genai.Client(api_key=API_KEY) if API_KEY else None
 
 # REAL USERS ONLY - no fake
 REAL_LEADERBOARD = {}
+
+# === NEW: CODING TOPIC CHECKER ===
+CODING_KEYWORDS = [
+    "array", "linked list", "stack", "queue", "tree", "graph", "recursion", "dp", "dynamic",
+    "oops", "class", "object", "inheritance", "pointer", "function", "loop", "string",
+    "sorting", "searching", "binary", "hash", "heap", "code", "program", "algorithm",
+    "dsa", "c++", "java", "python", "javascript", "linkedlist"
+]
+
+def is_coding_topic(topic):
+    low = topic.lower()
+    return any(kw in low for kw in CODING_KEYWORDS)
+
+def get_smart_prompt(q):
+    coding = is_coding_topic(q)
+    base = "You are StudyGenie by Sparsh Singhal, funny Gen-Z Hinglish Genie. Max 220 words, use emojis, bullets, end with question."
+
+    if coding:
+        return f"{base} User asked CODING topic: '{q}'. So you MUST include: 1) Hinglish Definition 2) Small C++ Code 3) Dry Run Table (1 example) 4) 1 Common Mistake. Format mast rakh. User: {q}"
+    else:
+        return f"{base} User asked THEORY topic: '{q}'. DO NOT give code. Give: 🔥 Definition, 🧱 5 Points, 💡 Example, 🧠 Trick to remember. No code, no dry run because ye theory hai. User: {q}"
 
 HTML_PAGE = """
 <!DOCTYPE html>
@@ -32,7 +53,7 @@ body{font-family:'Outfit',sans-serif; background: radial-gradient(ellipse at top
     <img id="logo" src="/sparsh.jpg" class="w-12 h-12 md:w-14 md:h-14 rounded-full border-2 border-orange-500 object-cover cursor-pointer shadow-lg" title="Dev: 5x click">
     <div>
       <h1 class="text-lg md:text-2xl font-black">StudyGenie <span class="text-orange-400">by Sparsh Singhal</span> <span id="devBadge" class="hidden text-[9px] bg-yellow-400 text-black px-2 py-0.5 rounded-full ml-1">DEV UNLIMITED 👑</span></h1>
-      <p class="text-[11px] md:text-xs opacity-70"><span id="wishLeft">10</span> wishes left • Level <span id="lvl">1</span> • <span id="rank">#1</span></p>
+      <p class="text-[11px] md:text-xs opacity-70"><span id="wishLeft">10</span> wishes left • Level <span id="lvl">1</span> • <span id="rank">#1</span> • <span id="topicType" class="px-2 py-0.5 rounded-full bg-white/10"></span></p>
     </div>
   </div>
   <button id="voiceBtn" onclick="toggleVoice()" class="px-3 md:px-4 py-1.5 rounded-full text-xs font-bold bg-green-500/20 border border-green-500">🔊 Voice: ON</button>
@@ -41,11 +62,11 @@ body{font-family:'Outfit',sans-serif; background: radial-gradient(ellipse at top
 <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
   <div class="lg:col-span-3 glass rounded-[24px] p-3 md:p-4 flex flex-col min-h-[75vh]">
     <div id="chat" class="flex-1 space-y-4 overflow-y-auto pr-1 max-h-[60vh] md:max-h-[65vh]">
-      <div class="bubble-ai p-4 rounded-2xl rounded-bl-none max-w-[92%] text-sm leading-relaxed">Hukm mere aaka! 🧞 <b>Mai Sparsh Singhal ka Genie hu!</b> 10 free wishes milengi uske baad genie ki saari superpowers unlock karne ke liye genie ko recharge karna hoga! 😎</div>
+      <div class="bubble-ai p-4 rounded-2xl rounded-bl-none max-w-[92%] text-sm leading-relaxed">Hukm mere aaka! 🧞 <b>Mai Sparsh Singhal ka Genie hu!</b> 10 free wishes milengi uske baad genie ki saari superpowers unlock karne ke liye genie ko recharge karna hoga! 😎<br><br>💻 Coding topic likhoge to Code+Dry Run dunga, 📚 Theory likhoge to trick dunga. Auto detect!</div>
     </div>
     <div class="flex gap-2 mt-4 flex-wrap">
-      <span class="chip glass px-3 py-1.5 rounded-full text-xs border border-white/10" onclick="quickAsk('Linked List samjha de masti me')">📚 Linked List</span>
-      <span class="chip glass px-3 py-1.5 rounded-full text-xs border border-white/10" onclick="quickAsk('photosynthesis samjhao easy me')">🌿 Photosynthesis</span>
+      <span class="chip glass px-3 py-1.5 rounded-full text-xs border border-white/10" onclick="quickAsk('Linked List samjha de masti me')">📚 Linked List = Code</span>
+      <span class="chip glass px-3 py-1.5 rounded-full text-xs border border-white/10" onclick="quickAsk('photosynthesis samjhao easy me')">🌿 Photosynthesis = Theory</span>
       <span class="chip glass px-3 py-1.5 rounded-full text-xs border border-white/10" onclick="quickAsk('Ek joke suna Genie style me')">😂 Joke</span>
       <span class="chip glass px-3 py-1.5 rounded-full text-xs border border-white/10" onclick="quickAsk('Mera roast kar de')">🔥 Roast</span>
     </div>
@@ -70,7 +91,7 @@ body{font-family:'Outfit',sans-serif; background: radial-gradient(ellipse at top
       <p class="font-bold text-sm">⚡ Your Stats</p>
       <p class="text-xs mt-1 opacity-80">XP: <span id="xp">0</span> • Level <span id="lvl2">1</span></p>
       <div class="h-2 bg-black/30 rounded-full mt-2"><div id="xpBar" class="bg-gradient-to-r from-yellow-300 to-orange-400 h-2 rounded-full transition-all" style="width:0%"></div></div>
-      <p class="text-[10px] mt-2 opacity-50">Har sawal = +12 XP</p>
+      <p class="text-[10px] mt-2 opacity-50">Har sawal = +12 XP • Coding = +5 extra</p>
     </div>
   </div>
 </div>
@@ -79,7 +100,7 @@ body{font-family:'Outfit',sans-serif; background: radial-gradient(ellipse at top
   <div class="glass rounded-[24px] p-6 max-w-sm w-full text-center border border-orange-500/30">
     <h2 class="text-2xl font-black">🔒 10 Wishes Khatam!</h2>
     <p class="text-sm mt-2 opacity-80">Aaka, free ki wishes khatam ho gayi. Genie ab Pro maang raha hai!</p>
-    <div class="mt-4 bg-black/30 rounded-2xl p-4 text-left text-xs space-y-2"><p>✅ Unlimited wishes</p><p>✅ Voice never stops</p><p>✅ Leaderboard boost</p><p>✅ No limits</p></div>
+    <div class="mt-4 bg-black/30 rounded-2xl p-4 text-left text-xs space-y-2"><p>✅ Unlimited wishes</p><p>✅ Voice never stops</p><p>✅ Leaderboard boost</p><p>✅ Code+ Dry Run unlimited</p></div>
     <div class="mt-4 grid grid-cols-2 gap-2"><button onclick="buyPro()" class="bg-gradient-to-r from-orange-500 to-yellow-500 text-black font-black py-3 rounded-full">Buy Pro ₹99/m</button><button onclick="closePay()" class="glass py-3 rounded-full text-sm">Baad me</button></div>
     <p class="text-[10px] mt-3 opacity-40">Dev? Logo pe 5x click karo 😉</p>
   </div>
@@ -91,6 +112,9 @@ let userId = localStorage.getItem('genie_userId') || 'user_'+Math.random().toStr
 localStorage.setItem('genie_userId', userId);
 let stats = JSON.parse(localStorage.getItem('genie_stats') || '{"xp":0,"level":1,"wishes":0}');
 let isDev = localStorage.getItem('isDev')==='true';
+
+const codingKeywords = ["array","linked list","stack","queue","tree","graph","recursion","dp","oops","class","object","pointer","function","loop","string","sorting","searching","binary","hash","heap","code","program","dsa","c++","java","python"];
+function checkIsCodingTopic(t){ return codingKeywords.some(k=> t.toLowerCase().includes(k)); }
 
 function save(){localStorage.setItem('genie_stats', JSON.stringify(stats)); render();}
 function render(){
@@ -125,13 +149,27 @@ function playNext(){if(queue.length==0){isSpeaking=false; return;} isSpeaking=tr
 function closePay(){document.getElementById('payModal').classList.add('hidden');}
 function buyPro(){alert("Razorpay link yahan lagega!"); closePay();}
 function quickAsk(t){document.getElementById('q').value=t; ask();}
+
+document.getElementById('q').addEventListener('input', (e)=>{
+  let isCode = checkIsCodingTopic(e.target.value);
+  let el = document.getElementById('topicType');
+  if(e.target.value.length>2){
+    el.innerText = isCode? '💻 Coding' : '📚 Theory';
+    el.className = isCode? 'px-2 py-0.5 rounded-full bg-green-500/20 border border-green-500 text-[10px]' : 'px-2 py-0.5 rounded-full bg-white/10 text-[10px]';
+  } else { el.innerText=''; }
+});
+
 async function ask(){
   let input=document.getElementById('q'); let q=input.value.trim(); if(!q) return;
+  let isCode = checkIsCodingTopic(q);
   if(!isDev && stats.wishes>=10){document.getElementById('payModal').classList.remove('hidden'); return;}
-  let chat=document.getElementById('chat'); chat.innerHTML+=`<div class="bubble-user p-3 px-4 rounded-2xl rounded-br-none max-w-[85%] ml-auto text-sm font-medium">${q}</div>`; input.value='';
-  stats.wishes++; stats.xp+=12; if(stats.xp>=100){stats.level++; stats.xp=0;} save();
+  let chat=document.getElementById('chat');
+  let badge = isCode? '<span class="text-[9px] bg-green-500 text-black px-2 py-0.5 rounded-full ml-2">💻 CODE</span>' : '<span class="text-[9px] bg-white/20 px-2 py-0.5 rounded-full ml-2">📚 THEORY</span>';
+  chat.innerHTML+=`<div class="bubble-user p-3 px-4 rounded-2xl rounded-br-none max-w-[85%] ml-auto text-sm font-medium">${q} ${badge}</div>`; input.value='';
+  document.getElementById('topicType').innerText='';
+  stats.wishes++; stats.xp+= isCode? 17 : 12; if(stats.xp>=100){stats.level++; stats.xp=0;} save();
   fetch('/update_xp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:userId, xp: (stats.level-1)*100 + stats.xp + stats.wishes*2, level:stats.level})});
-  chat.innerHTML+=`<div id="typing" class="bubble-ai p-3 rounded-2xl max-w-[40%] text-xs opacity-70 flex items-center gap-2"><span class="w-2 h-2 bg-orange-400 rounded-full animate-bounce"></span> Genie soch raha hai...</div>`; chat.scrollTop=chat.scrollHeight;
+  chat.innerHTML+=`<div id="typing" class="bubble-ai p-3 rounded-2xl max-w-[40%] text-xs opacity-70 flex items-center gap-2"><span class="w-2 h-2 bg-orange-400 rounded-full animate-bounce"></span> Genie soch raha hai... ${isCode?'Code+Dry Run bana raha hu':'Theory trick soch raha hu'}</div>`; chat.scrollTop=chat.scrollHeight;
   let res=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q})}); let data=await res.json();
   document.getElementById('typing')?.remove();
   let id=Date.now(); chat.innerHTML+=`<div class="bubble-ai p-4 rounded-2xl rounded-bl-none max-w-[92%] text-[13px] leading-relaxed whitespace-pre-wrap"><span id="ans-${id}">${data.ans}</span><div class="mt-3 flex gap-2"><button onclick="speakQueue(document.getElementById('ans-${id}').innerText)" class="text-[11px] glass px-3 py-1 rounded-full hover:bg-white/20">🔊 Pura suna de</button><button onclick="navigator.clipboard.writeText(document.getElementById('ans-${id}').innerText)" class="text-[11px] glass px-3 py-1 rounded-full hover:bg-white/20">📋 Copy</button></div></div>`;
@@ -169,9 +207,10 @@ def ask_gemini():
     q=request.json.get("q","")
     if not client: return jsonify({"ans":"API Key missing! Vercel me GOOGLE_API_KEY add kar"})
     try:
-        prompt=f"You are StudyGenie by Sparsh Singhal, funny Gen-Z Hinglish Genie. Max 180 words, use emojis, bullets, end with question. User: {q}"
-        resp=client.models.generate_content(model="gemini-3.6-flash", contents=prompt)
-        return jsonify({"ans":resp.text})
-    except Exception as e: return jsonify({"ans":f"Error: {str(e)}"})
+        prompt = get_smart_prompt(q) # <-- SMART PROMPT
+        resp = client.models.generate_content(model="gemini-3.6-flash", contents=prompt)
+        return jsonify({"ans": resp.text, "is_coding": is_coding_topic(q)})
+    except Exception as e:
+        return jsonify({"ans":f"Error: {str(e)}"})
 
 if __name__=="__main__": app.run()
