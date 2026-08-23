@@ -76,7 +76,7 @@ def ask_route():
     d=request.json; q=d.get("q",""); name=d.get("name","aaka")
     prompt = f"You are StudyGenie by Sparsh Singhal, a funny alien genie. Explain '{q}' for {name} in Hinglish. Use EXACT format: 🔥 Definition (2 lines) \\n💡 Example (1 real life) \\n🧠 Feynman (simple story). Keep total under 150 words. End with 'Aur hukm {name}? 😏'"
     try:
-        response = client.models.generate_content(model="gemini-2.0-flash", contents=prompt, config=types.GenerateContentConfig(max_output_tokens=2048, temperature=0.7))
+        response = client.models.generate_content(model="gemini-3.6-flash", contents=prompt, config=types.GenerateContentConfig(max_output_tokens=2048, temperature=0.7))
         ans = response.text.replace("\\n","<br>")
     except Exception as e:
         ans = f"Arre {name}, error: {e}"
