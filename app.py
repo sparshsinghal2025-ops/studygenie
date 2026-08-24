@@ -292,6 +292,7 @@ def register_user():
     return jsonify({"ok": True})
 
 @app.route('/admin_users')
+@app.route('/api/admin_users')
 def admin_users():
     now = time.time()
     live = len([v for v in LIVE_USERS.values() if now - v < 120])
