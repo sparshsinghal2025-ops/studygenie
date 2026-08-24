@@ -1,5 +1,8 @@
 import os
+import time
+import threading
 from flask import Flask, request, jsonify, send_from_directory
+
 app = Flask(__name__)
 
 try:
@@ -9,8 +12,34 @@ try:
 except:
     client = None
 
+# ------------------------------------------------------------------
+# SCALE NOTES (only backend plumbing changed, nothing else):
+# 1. Original in-memory dicts kept EXACTLY as before (REAL_LEADERBOARD,
+#    USER_DB) -- same shape, same keys, same behaviour. Just wrapped
+#    with a threading.Lock() so 10,000 simultaneous requests can't
+#    corrupt them with a half-written read/modify/write race.
+# 2. /leaderboard used to re-sort the whole dict on every single hit.
+#    With 10k users each polling every 5s (setInterval in the HTML,
+#    unchanged) that's ~2000 req/s at peak. Sorting is cheap, but doing
+#    it 2000x/sec for identical data is wasteful -> added a tiny
+#    (0.5s) cache so we sort once and serve many requests from it.
+#    Data is still "live" (max 0.5s stale), leaderboard logic is
+#    otherwise 100% identical to before.
+# 3. Swapped the dev server (app.run()) for a production WSGI server
+#    (waitress) with a large thread pool, since Flask's built-in
+#    server is single-threaded-by-default and will fall over well
+#    before 10k users. `pip install waitress --break-system-packages`
+#    Run with:  python app.py
+#    (falls back to Flask's threaded dev server automatically if
+#    waitress isn't installed, so the script still "just runs").
+# ------------------------------------------------------------------
+
 REAL_LEADERBOARD = {}
 USER_DB = {}
+_state_lock = threading.Lock()
+
+_board_cache = {"data": [], "ts": 0.0}
+_BOARD_CACHE_TTL = 0.5  # seconds
 
 HTML_PAGE = r"""
 <!DOCTYPE html>
@@ -162,14 +191,26 @@ def photo():
 def register_user():
     d = request.get_json(silent=True) or {}
     uid = d.get("uid"); name = d.get("name","Warrior")[:20]; phone = d.get("phone","")[:10]
-    if phone: USER_DB[phone] = {"name": name, "uid": uid, "phone": phone, "plan": "free", "xp": 0}
+    if phone:
+        with _state_lock:
+            USER_DB[phone] = {"name": name, "uid": uid, "phone": phone, "plan": "free", "xp": 0}
     return jsonify({"ok": True})
+
+def _compute_board():
+    with _state_lock:
+        sorted_users = sorted(REAL_LEADERBOARD.values(), key=lambda x: x['xp'], reverse=True)[:10]
+        public = [{"id": u["id"], "name": u["name"], "xp": u["xp"]} for u in sorted_users]
+    return public
 
 @app.route("/leaderboard")
 def leaderboard():
-    sorted_users = sorted(REAL_LEADERBOARD.values(), key=lambda x: x['xp'], reverse=True)[:10]
-    public = [{"id": u["id"], "name": u["name"], "xp": u["xp"]} for u in sorted_users]
-    return jsonify(public)
+    # Serve from a short-lived cache so thousands of clients polling
+    # every 5s don't each trigger their own full sort of REAL_LEADERBOARD.
+    now = time.time()
+    if now - _board_cache["ts"] > _BOARD_CACHE_TTL:
+        _board_cache["data"] = _compute_board()
+        _board_cache["ts"] = now
+    return jsonify(_board_cache["data"])
 
 @app.route("/update_xp", methods=["POST"])
 def update_xp():
@@ -177,9 +218,10 @@ def update_xp():
     uid = d.get("uid","anon"); xp = int(d.get("xp",0))
     name = d.get("name","Warrior")[:20] or f"Grinder {uid[-3:].upper()}"
     phone = d.get("phone","")[:10]
-    REAL_LEADERBOARD[uid] = {"id": uid, "name": name, "xp": xp, "_phone": phone}
-    if phone and phone in USER_DB:
-        USER_DB[phone]["xp"] = xp; USER_DB[phone]["name"] = name
+    with _state_lock:
+        REAL_LEADERBOARD[uid] = {"id": uid, "name": name, "xp": xp, "_phone": phone}
+        if phone and phone in USER_DB:
+            USER_DB[phone]["xp"] = xp; USER_DB[phone]["name"] = name
     return jsonify({"ok": True})
 
 @app.route("/ask", methods=["POST"])
@@ -194,6 +236,18 @@ def ask_gemini():
 
 @app.route("/admin_users")
 def admin_users():
-    return jsonify({"users": list(USER_DB.values())})
+    with _state_lock:
+        return jsonify({"users": list(USER_DB.values())})
 
-if __name__ == "__main__": app.run()
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    try:
+        # Production-grade, multi-threaded WSGI server -> can comfortably
+        # hold thousands of concurrent keep-alive/polling connections.
+        from waitress import serve
+        serve(app, host="0.0.0.0", port=port, threads=200)
+    except ImportError:
+        # Fallback so the script still runs even if waitress isn't
+        # installed yet -- but for real 10k-user load, install it:
+        #   pip install waitress --break-system-packages
+        app.run(host="0.0.0.0", port=port, threaded=True)
