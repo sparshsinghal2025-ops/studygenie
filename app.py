@@ -1,9 +1,17 @@
 import os
 import time
-import threading
 from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+import threading
+
+# --- 1. YAHAN ADD KAR ---
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN","")
+
+USER_DB = {}
+_state_lock = threading.Lock()
 
 app = Flask(__name__)
+CORS(app)
 
 try:
     from google import genai
@@ -236,6 +244,8 @@ def ask_gemini():
 
 @app.route("/admin_users")
 def admin_users():
+    if ADMIN_TOKEN and request.args.get("token") != ADMIN_TOKEN:
+        return jsonify({"error":"unauthorized"}), 401
     with _state_lock:
         return jsonify({"users": list(USER_DB.values())})
 
