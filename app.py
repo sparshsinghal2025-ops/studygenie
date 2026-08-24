@@ -1,54 +1,202 @@
 import os
 import time
+import json
+import threading
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
-import threading
 
-# --- 1. YAHAN ADD KAR ---
-ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN","")
+# ------------------------------------------------------------------
+# Config
+# ------------------------------------------------------------------
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+LEADERBOARD_FILE = "leaderboard.json"
+_BOARD_CACHE_TTL = 0.5  # seconds
 
-USER_DB = {}
+# ------------------------------------------------------------------
+# State (thread-safe)
+# ------------------------------------------------------------------
 _state_lock = threading.Lock()
+REAL_LEADERBOARD = {}   # uid -> {"id", "name", "xp", "_phone"}
+USER_DB = {}            # phone -> {"name", "uid", "phone", "plan", "xp"}
+_board_cache = {"data": [], "ts": 0.0}
 
+# ------------------------------------------------------------------
+# Redis (optional)
+# ------------------------------------------------------------------
+r_client = None
+try:
+    import redis
+    REDIS_URL = os.environ.get("REDIS_URL") or os.environ.get("UPSTASH_REDIS_URL")
+    if REDIS_URL:
+        r_client = redis.from_url(REDIS_URL, decode_responses=True)
+        r_client.ping()
+except Exception:
+    r_client = None
+
+# ------------------------------------------------------------------
+# Persistence helpers
+# ------------------------------------------------------------------
+def load_from_file():
+    global REAL_LEADERBOARD, USER_DB
+    if not os.path.exists(LEADERBOARD_FILE):
+        return
+    try:
+        with open(LEADERBOARD_FILE, "r") as f:
+            data = json.load(f)
+            REAL_LEADERBOARD = data.get("board", {})
+            USER_DB = data.get("users", {})
+    except Exception:
+        pass
+
+def save_to_file():
+    if r_client:          # Redis is source of truth → skip file
+        return
+    try:
+        with open(LEADERBOARD_FILE, "w") as f:
+            json.dump({"board": REAL_LEADERBOARD, "users": USER_DB}, f)
+    except Exception:
+        pass
+
+load_from_file()
+
+# ------------------------------------------------------------------
+# Flask app
+# ------------------------------------------------------------------
 app = Flask(__name__)
 CORS(app)
 
+# Gemini client
+client = None
 try:
     from google import genai
     API_KEY = os.environ.get("GOOGLE_API_KEY", "")
-    client = genai.Client(api_key=API_KEY) if API_KEY else None
-except:
+    if API_KEY:
+        client = genai.Client(api_key=API_KEY)
+except Exception:
     client = None
 
 # ------------------------------------------------------------------
-# SCALE NOTES (only backend plumbing changed, nothing else):
-# 1. Original in-memory dicts kept EXACTLY as before (REAL_LEADERBOARD,
-#    USER_DB) -- same shape, same keys, same behaviour. Just wrapped
-#    with a threading.Lock() so 10,000 simultaneous requests can't
-#    corrupt them with a half-written read/modify/write race.
-# 2. /leaderboard used to re-sort the whole dict on every single hit.
-#    With 10k users each polling every 5s (setInterval in the HTML,
-#    unchanged) that's ~2000 req/s at peak. Sorting is cheap, but doing
-#    it 2000x/sec for identical data is wasteful -> added a tiny
-#    (0.5s) cache so we sort once and serve many requests from it.
-#    Data is still "live" (max 0.5s stale), leaderboard logic is
-#    otherwise 100% identical to before.
-# 3. Swapped the dev server (app.run()) for a production WSGI server
-#    (waitress) with a large thread pool, since Flask's built-in
-#    server is single-threaded-by-default and will fall over well
-#    before 10k users. `pip install waitress --break-system-packages`
-#    Run with:  python app.py
-#    (falls back to Flask's threaded dev server automatically if
-#    waitress isn't installed, so the script still "just runs").
+# Leaderboard helpers
 # ------------------------------------------------------------------
+def _compute_board():
+    """Return top-10 public leaderboard entries (name + xp only)."""
+    if r_client:
+        try:
+            all_data = r_client.hgetall("genie_board")
+            board = [json.loads(v) for v in all_data.values()]
+            return sorted(board, key=lambda x: x.get("xp", 0), reverse=True)[:10]
+        except Exception:
+            pass
 
-REAL_LEADERBOARD = {}
-USER_DB = {}
-_state_lock = threading.Lock()
+    with _state_lock:
+        sorted_users = sorted(
+            REAL_LEADERBOARD.values(),
+            key=lambda x: x.get("xp", 0),
+            reverse=True
+        )[:10]
+        return [
+            {"id": u["id"], "name": u["name"], "xp": u["xp"]}
+            for u in sorted_users
+        ]
 
-_board_cache = {"data": [], "ts": 0.0}
-_BOARD_CACHE_TTL = 0.5  # seconds
+# ------------------------------------------------------------------
+# Routes
+# ------------------------------------------------------------------
+@app.route("/")
+def home():
+    return HTML_PAGE
 
+@app.route("/sparsh.jpg")
+def photo():
+    try:
+        return send_from_directory(".", "sparsh.jpg")
+    except Exception:
+        return "", 204
+
+@app.route("/register_user", methods=["POST"])
+def register_user():
+    d = request.get_json(silent=True) or {}
+    uid = d.get("uid")
+    name = (d.get("name") or "Warrior")[:20]
+    phone = (d.get("phone") or "")[:10]
+    if phone:
+        with _state_lock:
+            USER_DB[phone] = {
+                "name": name,
+                "uid": uid,
+                "phone": phone,
+                "plan": "free",
+                "xp": 0,
+            }
+        save_to_file()
+    return jsonify({"ok": True})
+
+@app.route("/leaderboard")
+def leaderboard():
+    now = time.time()
+    if now - _board_cache["ts"] > _BOARD_CACHE_TTL:
+        _board_cache["data"] = _compute_board()
+        _board_cache["ts"] = now
+    return jsonify(_board_cache["data"])
+
+@app.route("/update_xp", methods=["POST"])
+def update_xp():
+    d = request.get_json(silent=True) or {}
+    uid = d.get("uid", "anon")
+    xp = int(d.get("xp", 0))
+    name = (d.get("name") or "Warrior")[:20] or f"Grinder {uid[-3:].upper()}"
+    phone = (d.get("phone") or "")[:10]
+    data = {"id": uid, "name": name, "xp": xp}
+
+    if r_client:
+        try:
+            r_client.hset("genie_board", uid, json.dumps(data))
+            return jsonify({"ok": True})
+        except Exception:
+            pass
+
+    with _state_lock:
+        REAL_LEADERBOARD[uid] = {
+            "id": uid,
+            "name": name,
+            "xp": xp,
+            "_phone": phone,
+        }
+        if phone and phone in USER_DB:
+            USER_DB[phone]["xp"] = xp
+            USER_DB[phone]["name"] = name
+    save_to_file()
+    return jsonify({"ok": True})
+
+@app.route("/ask", methods=["POST"])
+def ask_gemini():
+    d = request.get_json(silent=True) or {}
+    q = d.get("q", "")
+    name = d.get("name", "Warrior")
+    if not client:
+        return jsonify({"ans": f"Oye {name}, API Key missing - BY SPARSH SINGHAL"})
+    try:
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=(
+                f"You are StudyGenie by Sparsh Singhal. "
+                f"User {name}. Hinglish savage 180 words max. User: {q}"
+            ),
+        )
+        return jsonify({"ans": resp.text})
+    except Exception as e:
+        return jsonify({"ans": f"Error {e} - BY SPARSH SINGHAL"})
+
+@app.route("/admin_users")
+def admin_users():
+    if ADMIN_TOKEN and request.args.get("token") != ADMIN_TOKEN:
+        return jsonify({"error": "unauthorized"}), 401
+    with _state_lock:
+        return jsonify({"users": list(USER_DB.values())})
+
+# ------------------------------------------------------------------
+# HTML (unchanged from your original)
+# ------------------------------------------------------------------
 HTML_PAGE = r"""
 <!DOCTYPE html>
 <html><head>
@@ -81,7 +229,6 @@ body{background:#050507!important;color:#fff;overflow-y:auto!important;min-heigh
   </div>
   <div class="mono text-right"><div class="text-[10px] text-zinc-500 tracking-widest">AMMO</div><div class="font-black text-3xl"><span id="wishLeft">10</span>/10</div></div>
 </div>
-
 <div class="grid grid-cols-12 gap-3 mt-3">
   <div class="col-span-12 lg:col-span-3 space-y-3">
     <div class="hud rounded-[14px] p-4"><p class="mono text-[10px] text-zinc-500 tracking-widest">> MISSIONS BY SPARSH SINGHAL</p><div class="mt-4 bg-black p-3 rounded-[10px] border-l-[3px] border-[#ff4d00]"><div class="flex justify-between mono text-[11px] font-bold"><span>ELIMINATE 3 DOUBTS</span><span id="q1t">0/3</span></div><div class="progress mt-2"><div id="q1b" style="width:0%"></div></div></div></div>
@@ -102,7 +249,6 @@ body{background:#050507!important;color:#fff;overflow-y:auto!important;min-heigh
   </div>
 </div>
 </div>
-
 <div id="onboardModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4" style="background:rgba(0,0,0,0.92)">
   <div class="hud rounded-[20px] p-7 max-w-[420px] w-full border-2 border-[#ff4d00]/50">
     <div class="flex items-center gap-4"><img src="/sparsh.jpg" class="w-16 h-16 rounded-[12px] border-2 border-[#ff4d00] object-cover"><div><h2 class="font-black text-[20px] leading-none">WARRIOR REGISTRATION</h2><p class="mono text-[11px] text-[#ff8a00] mt-1 font-bold">BY SPARSH SINGHAL</p></div></div>
@@ -114,7 +260,6 @@ body{background:#050507!important;color:#fff;overflow-y:auto!important;min-heigh
     <button onclick="saveOnboard()" class="w-full mt-6 bg-gradient-to-r from-[#ff4d00] to-[#ff8a00] mono font-black py-3.5 rounded-[12px]">ENTER BATTLEFIELD 🔫</button>
   </div>
 </div>
-
 <!-- 28 FEATURES POPUP BY SPARSH SINGHAL -->
 <div id="payModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,0.92)">
   <div class="hud rounded-[20px] p-6 max-w-[520px] w-full border-2 border-[#ff4d00]/50 shadow-[0_0_50px_rgba(255,77,0,0.3)] max-h-[92vh] overflow-y-auto">
@@ -159,18 +304,15 @@ body{background:#050507!important;color:#fff;overflow-y:auto!important;min-heigh
     <button onclick="closePay()" class="w-full mt-3 bg-zinc-800 py-3 rounded-[10px] mono font-black text-[12px]">CLOSE</button>
   </div>
 </div>
-
 <script>
 let audioCtx; function initAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }
 function playSound(t){ try{ initAudio(); let o=audioCtx.createOscillator(); let g=audioCtx.createGain(); o.connect(g); g.connect(audioCtx.destination); if(t=='fire'){o.frequency.value=900;o.type='square';g.gain.setValueAtTime(0.4,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.12);o.start();o.stop(audioCtx.currentTime+0.12);} if(t=='hit'){o.frequency.value=500;o.type='sine';g.gain.setValueAtTime(0.3,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.2);o.start();o.stop(audioCtx.currentTime+0.2);} if(t=='level'){o.frequency.value=600;o.type='sine';g.gain.setValueAtTime(0.4,audioCtx.currentTime);o.frequency.linearRampToValueAtTime(1200,audioCtx.currentTime+0.5);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.6);o.start();o.stop(audioCtx.currentTime+0.6);} if(t=='empty'){o.frequency.value=150;o.type='sawtooth';g.gain.setValueAtTime(0.4,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.6);o.start();o.stop(audioCtx.currentTime+0.6);} if(t=='click'){o.frequency.value=800;o.type='triangle';g.gain.setValueAtTime(0.2,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.1);o.start();o.stop(audioCtx.currentTime+0.1);} }catch{} }
 function openPay(){ playSound('empty'); let ph=localStorage.getItem('genie_phone')||''; document.getElementById('payPhoneInfo').innerText = ph? `XXXXXX${ph.slice(-4)}`:'PRIVATE'; document.getElementById('upiLink').href = `upi://pay?pa=sparshsinghal@okicici&pn=Sparsh%20Singhal&am=49&cu=INR&tn=StudyGenie Pro ${ph}`; document.getElementById('payModal').classList.remove('hidden'); }
 function closePay(){ playSound('click'); document.getElementById('payModal').classList.add('hidden'); }
-
 let userId=localStorage.getItem('genie_userId')||'user_'+Math.random().toString(36).substr(2,9); localStorage.setItem('genie_userId',userId);
 let userName=localStorage.getItem('genie_name')||''; let userPhone=localStorage.getItem('genie_phone')||'';
 function checkOnboard(){ userName=localStorage.getItem('genie_name')||''; userPhone=localStorage.getItem('genie_phone')||''; if(!userName ||!userPhone || userPhone.length!=10){ document.getElementById('onboardModal').classList.remove('hidden'); } else { document.getElementById('onboardModal').classList.add('hidden'); document.getElementById('userNameTop').innerText=userName.toUpperCase(); document.getElementById('myId').innerText=`ID: ${userId} (private)`; document.getElementById('myPhone').innerText=`PHONE: XXXXXX${userPhone.slice(-4)} 🔒`; } }
 function saveOnboard(){ let n=document.getElementById('inpName').value.trim(); let p=document.getElementById('inpPhone').value.trim().replace(/[^0-9]/g,''); if(n.length<2){alert('Naam daal!');playSound('empty');return;} if(p.length!=10){alert('10 digit phone');playSound('empty');return;} localStorage.setItem('genie_name',n); localStorage.setItem('genie_phone',p); userName=n; userPhone=p; playSound('level'); document.getElementById('onboardModal').classList.add('hidden'); document.getElementById('userNameTop').innerText=n.toUpperCase(); document.getElementById('myId').innerText=`ID: ${userId} (private)`; document.getElementById('myPhone').innerText=`PHONE: XXXXXX${p.slice(-4)} 🔒`; updateLeaderboard(); fetch('/register_user',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:userId,name:n,phone:p})}); }
-
 let stats=JSON.parse(localStorage.getItem('genie_stats')||'{"xp":0,"level":1,"wishes":0,"q1":0,"totalXp":0}');
 let isDev=localStorage.getItem('isDev')==='true';
 function lamps(){let r=document.getElementById('lampRow'); r.innerHTML=''; for(let i=0;i<10;i++){let u=i<stats.wishes&&!isDev; r.innerHTML+=`<div class="ammo ${u?'used':''}">${u?'💨':'🪔'}</div>`;}}
@@ -187,77 +329,15 @@ if(localStorage.getItem('genie_phone')) document.getElementById('inpPhone').valu
 </script></body></html>
 """
 
-@app.route("/")
-def home(): return HTML_PAGE
-
-@app.route("/sparsh.jpg")
-def photo():
-    try: return send_from_directory(".", "sparsh.jpg")
-    except: return "", 204
-
-@app.route("/register_user", methods=["POST"])
-def register_user():
-    d = request.get_json(silent=True) or {}
-    uid = d.get("uid"); name = d.get("name","Warrior")[:20]; phone = d.get("phone","")[:10]
-    if phone:
-        with _state_lock:
-            USER_DB[phone] = {"name": name, "uid": uid, "phone": phone, "plan": "free", "xp": 0}
-    return jsonify({"ok": True})
-
-def _compute_board():
-    with _state_lock:
-        sorted_users = sorted(REAL_LEADERBOARD.values(), key=lambda x: x['xp'], reverse=True)[:10]
-        public = [{"id": u["id"], "name": u["name"], "xp": u["xp"]} for u in sorted_users]
-    return public
-
-@app.route("/leaderboard")
-def leaderboard():
-    # Serve from a short-lived cache so thousands of clients polling
-    # every 5s don't each trigger their own full sort of REAL_LEADERBOARD.
-    now = time.time()
-    if now - _board_cache["ts"] > _BOARD_CACHE_TTL:
-        _board_cache["data"] = _compute_board()
-        _board_cache["ts"] = now
-    return jsonify(_board_cache["data"])
-
-@app.route("/update_xp", methods=["POST"])
-def update_xp():
-    d = request.get_json(silent=True) or {}
-    uid = d.get("uid","anon"); xp = int(d.get("xp",0))
-    name = d.get("name","Warrior")[:20] or f"Grinder {uid[-3:].upper()}"
-    phone = d.get("phone","")[:10]
-    with _state_lock:
-        REAL_LEADERBOARD[uid] = {"id": uid, "name": name, "xp": xp, "_phone": phone}
-        if phone and phone in USER_DB:
-            USER_DB[phone]["xp"] = xp; USER_DB[phone]["name"] = name
-    return jsonify({"ok": True})
-
-@app.route("/ask", methods=["POST"])
-def ask_gemini():
-    d = request.get_json(silent=True) or {}
-    q = d.get("q",""); name = d.get("name","Warrior")
-    if not client: return jsonify({"ans": f"Oye {name}, API Key missing - BY SPARSH SINGHAL"})
-    try:
-        resp = client.models.generate_content(model="gemini-2.0-flash", contents=f"You are StudyGenie by Sparsh Singhal. User {name}. Hinglish savage 180 words max. User: {q}")
-        return jsonify({"ans": resp.text})
-    except Exception as e: return jsonify({"ans": f"Error {e} - BY SPARSH SINGHAL"})
-
-@app.route("/admin_users")
-def admin_users():
-    if ADMIN_TOKEN and request.args.get("token") != ADMIN_TOKEN:
-        return jsonify({"error":"unauthorized"}), 401
-    with _state_lock:
-        return jsonify({"users": list(USER_DB.values())})
-
+# ------------------------------------------------------------------
+# Entry point
+# ------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     try:
-        # Production-grade, multi-threaded WSGI server -> can comfortably
-        # hold thousands of concurrent keep-alive/polling connections.
         from waitress import serve
+        print(f"Starting with waitress on 0.0.0.0:{port} (threads=200)")
         serve(app, host="0.0.0.0", port=port, threads=200)
     except ImportError:
-        # Fallback so the script still runs even if waitress isn't
-        # installed yet -- but for real 10k-user load, install it:
-        #   pip install waitress --break-system-packages
+        print("waitress not found → falling back to Flask threaded server")
         app.run(host="0.0.0.0", port=port, threaded=True)
