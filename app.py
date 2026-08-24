@@ -216,7 +216,28 @@ def admin_stats():
             "total_asks_all_time": TOTAL_ASKS,
             "date": today
         })
+@app.route("/force_pro")
+def force_pro():
+    if ADMIN_TOKEN and request.args.get("token") != ADMIN_TOKEN:
+        return jsonify({"error": "unauthorized"}), 401
 
+    phone = request.args.get("phone", "")[:10]
+    if not phone:
+        return jsonify({"error": "phone required"}), 400
+
+    with _state_lock:
+        if phone in USER_DB:
+            USER_DB[phone]["plan"] = "pro"
+        else:
+            USER_DB[phone] = {
+                "name": "Warrior",
+                "uid": "manual",
+                "phone": phone,
+                "plan": "pro",
+                "xp": 0
+            }
+    save_to_file()
+    return jsonify({"ok": True, "phone": phone, "plan": "pro"})
 # ------------------------------------------------------------------
 # Razorpay Routes
 # ------------------------------------------------------------------
