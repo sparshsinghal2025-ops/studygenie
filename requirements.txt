@@ -1,8 +1,6 @@
-Flask==2.3.3
-Flask-cors==4.0.0
-upstash-redis==1.2.0
-requests==2.31.0
+flask
+flask-cors
+waitress
+razorpay
 google-genai
-redis==5.0.1
-python-dotenv==1.0.0
-gunicorn==21.2.0
+redis
