@@ -2,6 +2,8 @@ import os
 import time
 import json
 import threading
+from datetime import date
+from collections import defaultdict
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
@@ -16,9 +18,13 @@ _BOARD_CACHE_TTL = 0.5  # seconds
 # State (thread-safe)
 # ------------------------------------------------------------------
 _state_lock = threading.Lock()
-REAL_LEADERBOARD = {}   # uid -> {"id", "name", "xp", "_phone"}
-USER_DB = {}            # phone -> {"name", "uid", "phone", "plan", "xp"}
+REAL_LEADERBOARD = {}          # uid -> {"id", "name", "xp", "_phone"}
+USER_DB = {}                   # phone -> {"name", "uid", "phone", "plan", "xp"}
 _board_cache = {"data": [], "ts": 0.0}
+
+# Tracking
+DAILY_ACTIVE = defaultdict(set)   # date_string -> set of uids
+TOTAL_ASKS = 0
 
 # ------------------------------------------------------------------
 # Redis (optional)
@@ -49,7 +55,7 @@ def load_from_file():
         pass
 
 def save_to_file():
-    if r_client:          # Redis is source of truth → skip file
+    if r_client:
         return
     try:
         with open(LEADERBOARD_FILE, "w") as f:
@@ -79,7 +85,6 @@ except Exception:
 # Leaderboard helpers
 # ------------------------------------------------------------------
 def _compute_board():
-    """Return top-10 public leaderboard entries (name + xp only)."""
     if r_client:
         try:
             all_data = r_client.hgetall("genie_board")
@@ -170,9 +175,18 @@ def update_xp():
 
 @app.route("/ask", methods=["POST"])
 def ask_gemini():
+    global TOTAL_ASKS
     d = request.get_json(silent=True) or {}
     q = d.get("q", "")
     name = d.get("name", "Warrior")
+    uid = d.get("uid") or "anon"
+
+    # Tracking
+    today = str(date.today())
+    with _state_lock:
+        DAILY_ACTIVE[today].add(uid)
+        TOTAL_ASKS += 1
+
     if not client:
         return jsonify({"ans": f"Oye {name}, API Key missing - BY SPARSH SINGHAL"})
     try:
@@ -194,8 +208,23 @@ def admin_users():
     with _state_lock:
         return jsonify({"users": list(USER_DB.values())})
 
+@app.route("/admin_stats")
+def admin_stats():
+    if ADMIN_TOKEN and request.args.get("token") != ADMIN_TOKEN:
+        return jsonify({"error": "unauthorized"}), 401
+
+    today = str(date.today())
+    with _state_lock:
+        return jsonify({
+            "total_registered": len(USER_DB),
+            "total_on_leaderboard": len(REAL_LEADERBOARD),
+            "daily_active_today": len(DAILY_ACTIVE.get(today, set())),
+            "total_asks_all_time": TOTAL_ASKS,
+            "date": today
+        })
+
 # ------------------------------------------------------------------
-# HTML (unchanged from your original)
+# HTML
 # ------------------------------------------------------------------
 HTML_PAGE = r"""
 <!DOCTYPE html>
@@ -260,7 +289,6 @@ body{background:#050507!important;color:#fff;overflow-y:auto!important;min-heigh
     <button onclick="saveOnboard()" class="w-full mt-6 bg-gradient-to-r from-[#ff4d00] to-[#ff8a00] mono font-black py-3.5 rounded-[12px]">ENTER BATTLEFIELD 🔫</button>
   </div>
 </div>
-<!-- 28 FEATURES POPUP BY SPARSH SINGHAL -->
 <div id="payModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,0.92)">
   <div class="hud rounded-[20px] p-6 max-w-[520px] w-full border-2 border-[#ff4d00]/50 shadow-[0_0_50px_rgba(255,77,0,0.3)] max-h-[92vh] overflow-y-auto">
     <h2 class="font-black text-[24px] text-center">OUT OF AMMO! 🔫</h2>
@@ -321,7 +349,7 @@ function render(){document.getElementById('wishLeft').innerText=isDev?'∞':10-s
 async function updateLeaderboard(){ try{ let n=localStorage.getItem('genie_name')||userName||'Warrior'; let ph=localStorage.getItem('genie_phone')||userPhone||''; await fetch('/update_xp',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({uid:userId,name:n,phone:ph,xp:stats.totalXp||((stats.level-1)*100+stats.xp)})}); loadBoard(); }catch{} }
 async function loadBoard(){ try{ let r=await fetch('/leaderboard?t='+Date.now()); let d=await r.json(); if(d.length==0){document.getElementById('board').innerHTML=`<div class="text-zinc-500 text-center py-2">No warriors yet.</div>`; return;} let myRank=d.findIndex(u=>u.id===userId)+1; document.getElementById('rankTop').innerText=myRank||'-'; document.getElementById('board').innerHTML=d.map((u,i)=>{ let isMe=u.id===userId; let medal=i==0?'👑':i==1?'🥈':i==2?'🥉':`${i+1}.`; return `<div class="flex justify-between items-center p-2.5 rounded-[8px] border ${isMe?'bg-[#ff4d00]/10 border-[#ff4d00]/50 text-white':'bg-black border-zinc-800 text-zinc-300'} hitpop"><span>${medal} ${u.name} ${isMe?'[YOU]':''}</span><span class="text-[#ff4d00] font-black">${u.xp} XP</span></div>`; }).join(''); }catch{} }
 let c=0; document.getElementById('logo').addEventListener('click',()=>{playSound('click');c++;if(c>=5){let p=prompt("DEV ACCESS BY SPARSH SINGHAL - Code:");if(p==="sparsh123"){isDev=!isDev;localStorage.setItem('isDev',isDev);playSound(isDev?'level':'empty');alert(isDev?'GOD MODE ON':'OFF');render();}else if(p!==null){alert("ACCESS DENIED!");}c=0;}setTimeout(()=>c=0,2000);});
-async function ask(){ if(!localStorage.getItem('genie_name')||!localStorage.getItem('genie_phone')){checkOnboard();return;} let input=document.getElementById('q'); let q=input.value.trim(); if(!q)return; if(!isDev && stats.wishes>=10){openPay();return;} playSound('fire'); let chat=document.getElementById('chat'); chat.innerHTML+=`<div class="flex justify-end hitpop"><div class="bubble-user px-4 py-2 text-[14px] mono">${q}</div></div>`; input.value=''; stats.wishes++; stats.q1=Math.min(3,stats.q1+1); stats.xp+=12; stats.totalXp=(stats.totalXp||0)+12; if(stats.xp>=100){stats.level++;stats.xp=0;playSound('level');chat.innerHTML+=`<div class="text-center mono text-[#ff4d00] font-black text-[12px] py-2">LEVEL UP BY SPARSH SINGHAL - LVL ${stats.level}</div>`;} save(); chat.innerHTML+=`<div id="typing" class="flex gap-3"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-4 mono text-[12px] text-zinc-400 animate-pulse">> SPARSH SINGHAL'S GENIE LOCKING TARGET...</div></div>`; chat.scrollTop=chat.scrollHeight; let res=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q,name:userName,phone:userPhone})}); let data=await res.json(); document.getElementById('typing')?.remove(); playSound('hit'); chat.innerHTML+=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-4 max-w-[78%] text-[14px] whitespace-pre-wrap">${data.ans}</div></div>`; chat.scrollTop=chat.scrollHeight; }
+async function ask(){ if(!localStorage.getItem('genie_name')||!localStorage.getItem('genie_phone')){checkOnboard();return;} let input=document.getElementById('q'); let q=input.value.trim(); if(!q)return; if(!isDev && stats.wishes>=10){openPay();return;} playSound('fire'); let chat=document.getElementById('chat'); chat.innerHTML+=`<div class="flex justify-end hitpop"><div class="bubble-user px-4 py-2 text-[14px] mono">${q}</div></div>`; input.value=''; stats.wishes++; stats.q1=Math.min(3,stats.q1+1); stats.xp+=12; stats.totalXp=(stats.totalXp||0)+12; if(stats.xp>=100){stats.level++;stats.xp=0;playSound('level');chat.innerHTML+=`<div class="text-center mono text-[#ff4d00] font-black text-[12px] py-2">LEVEL UP BY SPARSH SINGHAL - LVL ${stats.level}</div>`;} save(); chat.innerHTML+=`<div id="typing" class="flex gap-3"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-4 mono text-[12px] text-zinc-400 animate-pulse">> SPARSH SINGHAL'S GENIE LOCKING TARGET...</div></div>`; chat.scrollTop=chat.scrollHeight; let res=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({q,name:userName,phone:userPhone,uid:userId})}); let data=await res.json(); document.getElementById('typing')?.remove(); playSound('hit'); chat.innerHTML+=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-4 max-w-[78%] text-[14px] whitespace-pre-wrap">${data.ans}</div></div>`; chat.scrollTop=chat.scrollHeight; }
 document.getElementById('chat').innerHTML=`<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-5 max-w-[78%] text-[14px] leading-relaxed">🔥 <b>OYE WARRIOR, BATTLEFIELD ME SWAGAT HAI!</b><br><br>Main hoon <b>Sparsh Singhal ka StudyGenie</b> — 28 features ke saath tere har doubt ko headshot dunga! 🔫<br><br><span class="mono text-[10px] text-[#ff4d00]">BY SPARSH SINGHAL | 28 FEATURES | SOUND ON 🔊</span></div></div>`;
 checkOnboard(); render(); loadBoard(); setInterval(loadBoard, 5000);
 if(localStorage.getItem('genie_name')) document.getElementById('inpName').value=localStorage.getItem('genie_name');
