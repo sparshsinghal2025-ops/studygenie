@@ -1,5 +1,5 @@
 # ===================================================================
-# STUDYGENIE - ULTIMATE BATTLE EDITION 🔥
+# STUDYGENIE - ULTIMATE BATTLE EDITION 🔥 (FIXED)
 # By Sparsh Singhal - Vercel Optimized
 # ===================================================================
 
@@ -506,20 +506,19 @@ Click "RELOAD" button below!
         user = storage.get_user(phone) if phone else None
         xp_gained = 0
         bonus = 0
+        bonus_text = ""
         
         if user:
             xp_gained = 25 if plan == "pro" else 10
             # Streak bonus
             if streak >= 3:
-                bonus = 5
+                bonus = streak * 2
                 xp_gained += bonus
             # Random bonus
             if random.random() < 0.1:  # 10% chance
                 bonus += 15
                 xp_gained += 15
                 bonus_text = "💥 CRITICAL HIT! +15 XP!"
-            else:
-                bonus_text = ""
             
             user["xp"] = user.get("xp", 0) + xp_gained
             if user["xp"] >= user.get("level", 1) * 100:
@@ -628,7 +627,7 @@ def admin_force_pro():
         return jsonify({"error": "Failed"}), 500
 
 # ===================================================================
-# HTML - ULTIMATE BATTLE EDITION with Sound Effects
+# HTML - ULTIMATE BATTLE EDITION (FIXED REGISTRATION)
 # ===================================================================
 HTML_PAGE = """<!DOCTYPE html>
 <html lang="en">
@@ -745,13 +744,6 @@ body {
 @keyframes float {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-10px); }
-}
-.pulse {
-  animation: pulse 2s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
 }
 .achievement {
   position: fixed;
@@ -990,10 +982,10 @@ function toggleSound() {
     </div>
     <p class="text-sm text-zinc-400 mt-3">Enter the battlefield, warrior!</p>
     <div class="mt-4 space-y-3">
-      <input id="inpName" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="⚡ Your Name" maxlength="20">
-      <input id="inpPhone" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="📱 10 digit phone" maxlength="10" type="tel">
+      <input id="inpName" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="⚡ Your Name" maxlength="20" value="Sparsh Singhal">
+      <input id="inpPhone" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="📱 10 digit phone" maxlength="10" type="tel" value="9540690819">
     </div>
-    <button onclick="register()" class="btn-fire w-full mt-4">🔥 ENTER BATTLEFIELD</button>
+    <button onclick="register()" class="btn-fire w-full mt-4" id="registerBtn">🔥 ENTER BATTLEFIELD</button>
   </div>
 </div>
 
@@ -1007,47 +999,92 @@ let phone = localStorage.getItem('phone') || '';
 let isPro = localStorage.getItem('pro') === 'true';
 let stats = JSON.parse(localStorage.getItem('stats') || '{"xp":0,"level":1,"wishes":0,"q1":0,"q2":0,"streak":0,"totalXp":0}');
 
+console.log('🔄 StudyGenie loaded!');
+console.log('📱 Phone:', phone);
+console.log('👤 Name:', name);
+console.log('💎 Is PRO:', isPro);
+
 // ==================== ONBOARD ====================
 function checkOnboard() {
+  console.log('🔍 Checking onboard status...');
+  console.log('Name:', name, 'Phone:', phone);
+  
   if (name && phone && phone.length == 10) {
     document.getElementById('onboard').style.display = 'none';
     document.getElementById('userName').textContent = name.toUpperCase();
     document.getElementById('myId').textContent = '🆔 ' + userId;
     document.getElementById('myPhone').textContent = '📱 ' + phone.slice(0,2) + '******' + phone.slice(-2);
+    console.log('✅ User already registered');
+    return true;
   } else {
     document.getElementById('onboard').style.display = 'flex';
+    console.log('❌ User not registered');
+    return false;
   }
 }
-checkOnboard();
 
 function register() {
-  let n = document.getElementById('inpName').value.trim();
-  let p = document.getElementById('inpPhone').value.trim().replace(/[^0-9]/g,'');
+  console.log('📝 Register button clicked!');
   
-  if (n.length < 2) { alert('⚠️ Name daalo!'); playSound('empty'); return; }
-  if (p.length != 10) { alert('📱 10 digit phone daalo!'); playSound('empty'); return; }
+  let nameInput = document.getElementById('inpName');
+  let phoneInput = document.getElementById('inpPhone');
   
+  let n = nameInput.value.trim();
+  let p = phoneInput.value.trim().replace(/[^0-9]/g,'');
+  
+  console.log('📝 Name:', n, 'Phone:', p);
+  
+  if (n.length < 2) {
+    alert('⚠️ Please enter your name!');
+    playSound('empty');
+    return;
+  }
+  
+  if (p.length != 10) {
+    alert('📱 Please enter a valid 10-digit phone number!');
+    playSound('empty');
+    return;
+  }
+  
+  // Save to localStorage
   name = n;
   phone = p;
   localStorage.setItem('name', name);
   localStorage.setItem('phone', phone);
   
+  console.log('✅ Saved to localStorage - Name:', name, 'Phone:', phone);
+  
+  // Play sound
   playSound('level');
+  
+  // Hide onboard
   document.getElementById('onboard').style.display = 'none';
   document.getElementById('userName').textContent = name.toUpperCase();
   document.getElementById('myId').textContent = '🆔 ' + userId;
   document.getElementById('myPhone').textContent = '📱 ' + phone.slice(0,2) + '******' + phone.slice(-2);
   
+  // Register with server
+  console.log('📡 Registering with server...');
   fetch('/register_user', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({uid: userId, name, phone})
-  }).then(() => {
-    updateLeaderboard();
-    checkPlan();
+  })
+  .then(res => res.json())
+  .then(data => {
+    console.log('✅ Server response:', data);
+    if (data.ok) {
+      showAchievement('🔥 Welcome ' + name + '!', 'success');
+      updateLeaderboard();
+      checkPlan();
+    } else {
+      alert('❌ Registration failed: ' + (data.error || 'Unknown error'));
+    }
+  })
+  .catch(err => {
+    console.error('❌ Registration error:', err);
+    alert('❌ Network error. Please try again.');
   });
-  
-  showAchievement('🔥 Welcome ' + n + '!', 'success');
 }
 
 // ==================== RENDER ====================
@@ -1156,6 +1193,7 @@ async function openPay() {
   playSound('empty');
   if (!phone || phone.length !== 10) {
     alert('📱 Register first!');
+    document.getElementById('onboard').style.display = 'flex';
     return;
   }
   
@@ -1323,6 +1361,8 @@ document.getElementById('logo').addEventListener('click', () => {
 });
 
 // ==================== INIT ====================
+console.log('🚀 Initializing StudyGenie...');
+checkOnboard();
 render();
 loadBoard();
 checkPlan();
@@ -1350,6 +1390,9 @@ console.log('🔥 StudyGenie Ultimate Battle loaded!');
 console.log('👤 User:', name || 'Not registered');
 console.log('💎 Plan:', isPro ? 'PRO' : 'FREE');
 console.log('🎯 Level:', stats.level);
+
+// Show the register button works!
+console.log('✅ Click "ENTER BATTLEFIELD" to register!');
 </script>
 </body></html>
 """
