@@ -1,5 +1,5 @@
 # ===================================================================
-# STUDYGENIE - Vercel Serverless Compatible Version
+# STUDYGENIE - Vercel Serverless Production Version
 # By Sparsh Singhal
 # ===================================================================
 
@@ -19,17 +19,16 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 # ===================================================================
-# Flask & Dependencies (Vercel Compatible)
+# Flask & Dependencies
 # ===================================================================
 from flask import Flask, request, jsonify, send_from_directory, g
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-# Try importing optional dependencies
+# Optional dependencies with graceful fallback
 try:
     import redis
-    from redis import ConnectionPool
     REDIS_AVAILABLE = True
 except ImportError:
     REDIS_AVAILABLE = False
@@ -50,22 +49,23 @@ except ImportError:
     razorpay = None
 
 # ===================================================================
-# Configuration - All from Environment Variables
+# Configuration
 # ===================================================================
 class Config:
-    """Configuration management."""
+    """Configuration from environment variables."""
     
     # Core
     SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(32))
     ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", secrets.token_urlsafe(32))
     FLASK_ENV = os.environ.get("FLASK_ENV", "production")
+    IS_VERCEL = os.environ.get("VERCEL", "false").lower() == "true"
     
-    # Redis (Vercel KV or Upstash)
+    # Redis - supports both REDIS_URL and UPSTASH_REDIS_URL
     REDIS_URL = os.environ.get("REDIS_URL") or os.environ.get("UPSTASH_REDIS_URL") or os.environ.get("KV_URL")
     REDIS_TIMEOUT = int(os.environ.get("REDIS_TIMEOUT", 5))
     
-    # AI
-    GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
+    # AI - supports GOOGLE_API_KEY (primary)
+    GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_KEY") or ""
     AI_MODEL = "gemini-2.0-flash"
     AI_MAX_TOKENS = 200
     
@@ -73,7 +73,7 @@ class Config:
     RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
     RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
     RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
-    PRO_AMOUNT = int(os.environ.get("PRO_AMOUNT", 4900))
+    PRO_AMOUNT = int(os.environ.get("PRO_AMOUNT", 4900))  # ₹49
     
     # Limits
     FREE_ASK_LIMIT = int(os.environ.get("FREE_ASK_LIMIT", 10))
@@ -84,20 +84,16 @@ class Config:
     # Cache
     USER_CACHE_TTL = 300
     LEADERBOARD_CACHE_TTL = 5
-    
-    # Vercel specific
-    IS_VERCEL = os.environ.get("VERCEL", "false").lower() == "true"
-    IS_DEVELOPMENT = FLASK_ENV == "development"
 
 config = Config()
 
 # ===================================================================
-# Logging (Vercel compatible)
+# Logging
 # ===================================================================
 log = logging.getLogger("studygenie")
 log.setLevel(logging.INFO)
 
-# Vercel uses stdout for logs
+# Console handler for Vercel
 handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -105,18 +101,18 @@ handler.setFormatter(logging.Formatter(
 log.addHandler(handler)
 
 # ===================================================================
-# Redis Client (Vercel KV Compatible)
+# Redis Client
 # ===================================================================
 class RedisClient:
-    """Redis client for Vercel KV / Upstash."""
+    """Redis client with Vercel KV support."""
     
     def __init__(self):
         self.client = None
         self._connect()
     
     def _connect(self):
-        """Connect to Redis."""
         if not REDIS_AVAILABLE:
+            log.warning("Redis module not available")
             return
         
         if not config.REDIS_URL:
@@ -124,7 +120,6 @@ class RedisClient:
             return
         
         try:
-            # Vercel KV uses the same Redis protocol
             self.client = redis.from_url(
                 config.REDIS_URL,
                 decode_responses=True,
@@ -132,7 +127,7 @@ class RedisClient:
                 socket_timeout=config.REDIS_TIMEOUT,
                 retry_on_timeout=True
             )
-            # Test connection (don't ping on Vercel to avoid timeout)
+            # Skip ping on Vercel to avoid timeout
             if not config.IS_VERCEL:
                 self.client.ping()
             log.info("Redis connected successfully")
@@ -141,20 +136,10 @@ class RedisClient:
             self.client = None
     
     def get(self):
-        """Get Redis client."""
         return self.client
     
     def is_available(self):
-        """Check if Redis is available."""
-        if not self.client:
-            return False
-        try:
-            if config.IS_VERCEL:
-                return True  # Assume it works on Vercel
-            self.client.ping()
-            return True
-        except:
-            return False
+        return self.client is not None
 
 redis_client = RedisClient()
 
@@ -245,66 +230,22 @@ class LeaderboardEntry:
         return result
 
 # ===================================================================
-# Storage Service (Vercel KV + File Fallback)
+# Storage Service
 # ===================================================================
 class StorageService:
-    """Storage with Redis KV and file fallback for Vercel."""
+    """Storage with Redis KV primary, memory fallback."""
     
     def __init__(self):
-        self._lock = None
-        try:
-            import threading
-            self._lock = threading.RLock()
-        except:
-            pass
-        
-        # In-memory fallback for serverless (per request)
+        # In-memory cache
         self._users_cache = {}
         self._leaderboard_cache = []
         self._leaderboard_ts = 0
         self._ask_counts = defaultdict(int)
         self._total_asks = 0
         self._daily_active = defaultdict(set)
-        
-        # Load from file if not in Vercel
-        if not config.IS_VERCEL:
-            self._load_from_file()
     
     def _get_redis(self):
-        """Get Redis client."""
         return redis_client.get()
-    
-    def _load_from_file(self):
-        """Load from file (local development only)."""
-        try:
-            if os.path.exists("data.json"):
-                with open("data.json", "r") as f:
-                    data = json.load(f)
-                    self._ask_counts = defaultdict(int, data.get("ask_counts", {}))
-                    self._total_asks = data.get("total_asks", 0)
-                    self._daily_active = defaultdict(set, {
-                        k: set(v) for k, v in data.get("daily_active", {}).items()
-                    })
-                    log.info("Loaded data from file")
-        except Exception as e:
-            log.error(f"Failed to load data: {e}")
-    
-    def _save_to_file(self):
-        """Save to file (local development only)."""
-        if config.IS_VERCEL:
-            return
-        
-        try:
-            data = {
-                "ask_counts": dict(self._ask_counts),
-                "daily_active": {k: list(v) for k, v in self._daily_active.items()},
-                "total_asks": self._total_asks
-            }
-            with open("data.json.tmp", "w") as f:
-                json.dump(data, f)
-            os.replace("data.json.tmp", "data.json")
-        except Exception as e:
-            log.error(f"Failed to save data: {e}")
     
     # ========== User Operations ==========
     def get_user(self, phone: str) -> Optional[User]:
@@ -322,22 +263,9 @@ class StorageService:
             except Exception as e:
                 log.error(f"Redis get_user failed: {e}")
         
-        # Check memory cache
+        # Memory cache fallback
         if phone in self._users_cache:
             return self._users_cache[phone]
-        
-        # Try file (if not in Vercel)
-        if not config.IS_VERCEL and os.path.exists("data.json"):
-            try:
-                with open("data.json", "r") as f:
-                    all_data = json.load(f)
-                    users = all_data.get("users", {})
-                    if phone in users:
-                        user = User.from_dict(users[phone])
-                        self._users_cache[phone] = user
-                        return user
-            except:
-                pass
         
         return None
     
@@ -352,7 +280,7 @@ class StorageService:
             except Exception as e:
                 log.error(f"Redis get_user_by_uid failed: {e}")
         
-        # Check cache
+        # Memory cache fallback
         for user in self._users_cache.values():
             if user.uid == uid:
                 return user
@@ -374,15 +302,8 @@ class StorageService:
                 except Exception as e:
                     log.error(f"Redis save_user failed: {e}")
             
-            # Update cache
-            if self._lock:
-                with self._lock:
-                    self._users_cache[user.phone] = user
-                    self._save_to_file()
-            else:
-                self._users_cache[user.phone] = user
-                self._save_to_file()
-            
+            # Update memory cache
+            self._users_cache[user.phone] = user
             return True
         except Exception as e:
             log.error(f"Failed to save user: {e}")
@@ -481,22 +402,12 @@ class StorageService:
             except Exception as e:
                 log.error(f"Redis increment_ask_count failed: {e}")
         
-        # Fallback to memory
-        if self._lock:
-            with self._lock:
-                self._ask_counts[uid] = self._ask_counts.get(uid, 0) + 1
-                new_count = self._ask_counts[uid]
-                self._total_asks += 1
-                today = datetime.utcnow().strftime("%Y-%m-%d")
-                self._daily_active[today].add(uid)
-                self._save_to_file()
-        else:
-            self._ask_counts[uid] = self._ask_counts.get(uid, 0) + 1
-            new_count = self._ask_counts[uid]
-            self._total_asks += 1
-            today = datetime.utcnow().strftime("%Y-%m-%d")
-            self._daily_active[today].add(uid)
-            self._save_to_file()
+        # Memory fallback
+        self._ask_counts[uid] = self._ask_counts.get(uid, 0) + 1
+        new_count = self._ask_counts[uid]
+        self._total_asks += 1
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        self._daily_active[today].add(uid)
         
         return new_count
     
@@ -537,20 +448,9 @@ class StorageService:
             "date": today,
             "redis_connected": False
         }
-    
-    def save_payment(self, payment_data: Dict[str, Any]):
-        """Save payment record."""
-        r = self._get_redis()
-        if r:
-            try:
-                key = f"payment:{payment_data.get('order_id')}"
-                r.hset(key, mapping=payment_data)
-                r.expire(key, 86400 * 90)
-            except Exception as e:
-                log.error(f"Redis save_payment failed: {e}")
 
 # ===================================================================
-# Global Storage Instance
+# Global Storage
 # ===================================================================
 storage = StorageService()
 
@@ -588,7 +488,7 @@ def constant_time_compare(a: str, b: str) -> bool:
 # AI Service
 # ===================================================================
 class AIService:
-    """AI service with fallback."""
+    """AI service with Gemini."""
     
     def __init__(self):
         self.client = None
@@ -603,7 +503,7 @@ class AIService:
     def _init_client(self):
         """Initialize Gemini client."""
         if not GENAI_AVAILABLE:
-            log.warning("GenAI not available")
+            log.warning("GenAI module not available")
             return
         
         if config.GOOGLE_API_KEY:
@@ -615,7 +515,7 @@ class AIService:
                 log.error(f"AI init failed: {e}")
     
     def generate_response(self, question: str, user_name: str = "Warrior", is_pro: bool = False) -> Tuple[bool, str]:
-        """Generate response."""
+        """Generate AI response."""
         if not self.client:
             return False, self._get_fallback()
         
@@ -665,7 +565,7 @@ ai_service = AIService()
 # Payment Service
 # ===================================================================
 class PaymentService:
-    """Payment service."""
+    """Payment service with Razorpay."""
     
     def __init__(self):
         self.client = None
@@ -674,6 +574,7 @@ class PaymentService:
     def _init_client(self):
         """Initialize Razorpay."""
         if not RAZORPAY_AVAILABLE:
+            log.warning("Razorpay module not available")
             return
         
         if config.RAZORPAY_KEY_ID and config.RAZORPAY_KEY_SECRET:
@@ -686,7 +587,7 @@ class PaymentService:
                 log.error(f"Razorpay init failed: {e}")
     
     def create_order(self, uid: str, phone: str, name: str) -> Tuple[bool, Optional[Dict], str]:
-        """Create order."""
+        """Create Razorpay order."""
         if not self.client:
             return False, None, "Payment service not configured"
         
@@ -703,15 +604,6 @@ class PaymentService:
                 }
             })
             
-            storage.save_payment({
-                "order_id": order["id"],
-                "uid": uid,
-                "phone": phone,
-                "amount": order["amount"],
-                "status": "created",
-                "created_at": datetime.utcnow().isoformat()
-            })
-            
             return True, {
                 "order_id": order["id"],
                 "amount": order["amount"],
@@ -724,8 +616,9 @@ class PaymentService:
             return False, None, str(e)
     
     def verify_webhook(self, payload: bytes, signature: str) -> bool:
-        """Verify webhook."""
+        """Verify webhook signature."""
         if not config.RAZORPAY_WEBHOOK_SECRET:
+            log.warning("Webhook secret not configured")
             return False
         
         expected = hmac.new(
@@ -747,7 +640,7 @@ class PaymentService:
             order_id = payment_data.get("order_id")
             
             if not phone or not uid:
-                log.error(f"Invalid payment data")
+                log.error(f"Invalid payment data: {payment_data}")
                 return False
             
             # Update user to PRO
@@ -759,7 +652,9 @@ class PaymentService:
                 user.metadata["order_id"] = order_id
                 storage.save_user(user)
                 storage.update_leaderboard(uid, user.name, user.xp, phone, user.level)
+                log.info(f"✅ PRO unlocked for existing user: {phone}")
             else:
+                # Create new PRO user
                 user = User(
                     phone=phone,
                     uid=uid,
@@ -769,19 +664,8 @@ class PaymentService:
                 )
                 storage.save_user(user)
                 storage.update_leaderboard(uid, name, 0, phone, 1)
+                log.info(f"✅ PRO unlocked for new user: {phone}")
             
-            # Save payment record
-            storage.save_payment({
-                "order_id": order_id,
-                "payment_id": payment_id,
-                "uid": uid,
-                "phone": phone,
-                "amount": config.PRO_AMOUNT,
-                "status": "captured",
-                "captured_at": datetime.utcnow().isoformat()
-            })
-            
-            log.info(f"✅ PRO unlocked: {phone} - {name}")
             return True
             
         except Exception as e:
@@ -791,7 +675,7 @@ class PaymentService:
 payment_service = PaymentService()
 
 # ===================================================================
-# Flask Application (Vercel Compatible)
+# Flask Application
 # ===================================================================
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -805,7 +689,7 @@ CORS(app, resources={
     }
 })
 
-# Rate Limiter (with memory fallback for Vercel)
+# Rate Limiter
 try:
     limiter = Limiter(
         app=app,
@@ -819,14 +703,13 @@ try:
     )
 except Exception as e:
     log.warning(f"Rate limiter fallback: {e}")
-    # Fallback: no rate limiting
     limiter = None
 
 # ===================================================================
-# Admin Auth Decorator
+# Admin Auth
 # ===================================================================
 def admin_required(f):
-    """Admin authentication."""
+    """Admin authentication decorator."""
     @wraps(f)
     def decorated(*args, **kwargs):
         if not config.ADMIN_TOKEN:
@@ -1027,7 +910,7 @@ def create_order():
 
 @app.route("/razorpay/webhook", methods=["POST"])
 def razorpay_webhook():
-    """Handle webhook."""
+    """Handle Razorpay webhook."""
     try:
         payload = request.get_data()
         signature = request.headers.get("X-Razorpay-Signature", "")
@@ -1066,9 +949,6 @@ def check_plan():
         log.error(f"Check plan error: {e}")
         return jsonify({"plan": "free"}), 200
 
-# ===================================================================
-# Admin Routes
-# ===================================================================
 @app.route("/admin/stats")
 @admin_required
 def admin_stats():
@@ -1084,7 +964,6 @@ def admin_stats():
 def admin_users():
     """Get users."""
     try:
-        # Try to get from Redis
         r = redis_client.get()
         users = []
         
@@ -1099,7 +978,6 @@ def admin_users():
                 pass
         
         if not users:
-            # Return cached users
             users = [u.to_dict() for u in storage._users_cache.values()]
         
         users = users[:100]
@@ -1128,7 +1006,7 @@ def admin_force_pro():
         return jsonify({"error": str(e)}), 500
 
 # ===================================================================
-# HTML Page (Minified for Vercel)
+# HTML Page (Minified)
 # ===================================================================
 HTML_PAGE = r"""<!DOCTYPE html>
 <html><head>
@@ -1301,10 +1179,12 @@ def handler(request, context):
     """Vercel serverless handler."""
     return app(request, context)
 
-# For local development
+# ===================================================================
+# Local Development
+# ===================================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=config.IS_DEVELOPMENT)
+    app.run(host="0.0.0.0", port=port, debug=True)
 
 # ===================================================================
 # END OF FILE
