@@ -1,6 +1,6 @@
 # ===================================================================
-# STUDYGENIE - FINAL WORKING VERSION 🔥
-# By Sparsh Singhal - Registration Fixed + AI Working
+# STUDYGENIE - FINAL COMPLETE FIX 🔥
+# By Sparsh Singhal - Everything Working!
 # ===================================================================
 
 import os
@@ -61,6 +61,11 @@ RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
 FREE_ASK_LIMIT = int(os.environ.get("FREE_ASK_LIMIT", "10"))
 PRO_AMOUNT = int(os.environ.get("PRO_AMOUNT", "4900"))
+
+# ===================================================================
+# NEW: Latest Gemini Model
+# ===================================================================
+GEMINI_MODEL = "gemini-2.0-flash"  # Working model
 
 # ===================================================================
 # Redis Client
@@ -241,40 +246,59 @@ class Storage:
 storage = Storage()
 
 # ===================================================================
-# AI SERVICE
+# AI SERVICE - WITH LATEST MODEL 🔥
 # ===================================================================
 class AIService:
     def __init__(self):
         self.client = None
+        self.model_name = GEMINI_MODEL
+        
         if GENAI_AVAILABLE and GOOGLE_API_KEY:
             try:
                 genai.configure(api_key=GOOGLE_API_KEY)
-                self.client = genai.GenerativeModel("gemini-2.0-flash")
-                log.info("✅ Gemini AI initialized")
+                # Try to get available models
+                self.client = genai.GenerativeModel(self.model_name)
+                log.info(f"✅ Gemini AI initialized with model: {self.model_name}")
             except Exception as e:
                 log.error(f"Gemini init failed: {e}")
+                # Fallback to a working model
+                try:
+                    self.model_name = "gemini-1.5-flash"
+                    self.client = genai.GenerativeModel(self.model_name)
+                    log.info(f"✅ Gemini AI initialized with fallback model: {self.model_name}")
+                except:
+                    self.client = None
     
     def generate(self, question, name="Warrior", is_pro=False):
         if not self.client:
-            return f"""⚠️ AI Service Not Configured
+            return f"""⚠️ AI Service Not Available
 
-Oye {name}! Please set GOOGLE_API_KEY in environment variables.
+Oye {name}! Google Gemini API key is not working.
+
+Please check your GOOGLE_API_KEY environment variable.
 
 - BY SPARSH SINGHAL"""
         
         try:
-            prompt = f"""You are StudyGenie by Sparsh Singhal. User: {name}. 
+            # Build the prompt
+            prompt = f"""You are StudyGenie, an AI tutor created by Sparsh Singhal.
+User: {name}
 Question: {question}
 
-Give a complete, accurate answer. Show steps for numericals.
-Use Hinglish + English. Be helpful and encouraging.
+Provide a COMPLETE, ACCURATE answer.
+- For numerical problems: Show step-by-step solution
+- For conceptual questions: Give clear explanation
+- Use simple language with Hinglish mix
+- Add examples if helpful
+- Be encouraging
 
-Response:"""
+RESPONSE:"""
             
+            # Generate response
             response = self.client.generate_content(
                 prompt,
                 generation_config={
-                    "max_output_tokens": 500,
+                    "max_output_tokens": 600,
                     "temperature": 0.7
                 }
             )
@@ -286,7 +310,23 @@ Response:"""
             
         except Exception as e:
             log.error(f"AI error: {e}")
-            return f"""⚠️ Error: {str(e)}
+            error_msg = str(e)
+            
+            # Check if it's a model error
+            if "model" in error_msg.lower() and "available" in error_msg.lower():
+                return f"""⚠️ **Model Update Required**
+
+The Gemini model needs to be updated.
+
+Please try again later or contact support.
+
+Error: {error_msg}
+
+- BY SPARSH SINGHAL"""
+            
+            return f"""⚠️ **Error Occurred**
+
+Oye {name}! Kuch technical glitch ho gaya!
 
 Please try again or rephrase your question.
 
@@ -489,6 +529,7 @@ def ask():
         if not question:
             return jsonify({"error": "Empty question"}), 400
         
+        # Check quota
         plan = storage.get_plan(phone) if phone else "free"
         used = storage.get_ask_count(uid)
         
@@ -500,15 +541,18 @@ def ask():
 Oye {name}! Your free ammo is over!
 
 💎 RELOAD NOW - ₹49 Only!
-Click the "RELOAD" button below!
+Click "RELOAD" button below!
 
 - BY SPARSH SINGHAL"""
             }), 402
         
+        # Generate REAL answer
         response = ai_service.generate(question, name, plan == "pro")
         
+        # Update stats
         storage.increment_ask(uid)
         
+        # Update XP
         user = storage.get_user(phone) if phone else None
         xp_gained = 0
         level_up = False
@@ -627,7 +671,7 @@ def admin_force_pro():
         return jsonify({"error": "Failed"}), 500
 
 # ===================================================================
-# HTML - REGISTRATION WORKING 🔥
+# HTML - COMPLETE
 # ===================================================================
 HTML_PAGE = """<!DOCTYPE html>
 <html lang="en">
@@ -760,7 +804,7 @@ body { background: #050507; color: #fff; font-family: system-ui, sans-serif; min
 
 <script>
 // ============================================================
-// STATE - USING appData NOT localStorage directly
+// STATE
 // ============================================================
 const STORAGE_KEY = 'studygenie_data';
 let appData = {
@@ -777,7 +821,7 @@ function loadData() {
     if (saved) {
       const data = JSON.parse(saved);
       appData = { ...appData, ...data };
-      console.log('✅ Data loaded:', appData);
+      console.log('✅ Data loaded');
     }
   } catch(e) {}
 }
@@ -785,7 +829,6 @@ function loadData() {
 function saveData() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
-    console.log('✅ Data saved');
   } catch(e) {}
 }
 
@@ -810,10 +853,10 @@ function playSound(type) {
 }
 
 // ============================================================
-// REGISTRATION - FIXED ✅
+// REGISTRATION
 // ============================================================
 function registerUser() {
-  console.log('📝 Register button clicked!');
+  console.log('📝 Register button clicked');
   
   const nameInput = document.getElementById('inpName');
   const phoneInput = document.getElementById('inpPhone');
@@ -822,8 +865,6 @@ function registerUser() {
   
   const name = nameInput.value.trim();
   const phone = phoneInput.value.trim().replace(/[^0-9]/g, '');
-  
-  console.log('📝 Name:', name, 'Phone:', phone);
   
   if (!name || name.length < 2) {
     statusEl.textContent = '⚠️ Please enter your name!';
@@ -844,12 +885,9 @@ function registerUser() {
   btn.disabled = true;
   btn.textContent = '⏳ WAIT...';
   
-  // Save to appData
   appData.name = name;
   appData.phone = phone;
   saveData();
-  
-  console.log('📡 Sending to server:', {uid: appData.userId, name, phone});
   
   fetch('/register_user', {
     method: 'POST',
@@ -862,7 +900,6 @@ function registerUser() {
   })
   .then(res => res.json())
   .then(data => {
-    console.log('✅ Server response:', data);
     if (data.ok) {
       statusEl.textContent = '✅ Welcome ' + name + '!';
       statusEl.style.color = '#44ff88';
@@ -880,7 +917,6 @@ function registerUser() {
     }
   })
   .catch(err => {
-    console.error('❌ Registration error:', err);
     statusEl.textContent = '❌ Network error. Please try again.';
     statusEl.style.color = '#ff4444';
     btn.disabled = false;
@@ -889,10 +925,9 @@ function registerUser() {
 }
 
 // ============================================================
-// APP INIT
+// APP
 // ============================================================
 function initApp() {
-  console.log('🚀 Initializing app...');
   document.getElementById('userName').textContent = appData.name.toUpperCase();
   document.getElementById('myId').textContent = '🆔 ' + appData.userId;
   document.getElementById('myPhone').textContent = '📱 ' + appData.phone.slice(0,2) + '******' + appData.phone.slice(-2);
@@ -946,7 +981,7 @@ function appendBubble(text, isUser = false) {
 }
 
 // ============================================================
-// ASK - REAL AI
+// ASK
 // ============================================================
 async function ask() {
   if (!appData.name || !appData.phone) {
@@ -1037,6 +1072,9 @@ async function loadBoard() {
   } catch(e) {}
 }
 
+// ============================================================
+// PLAN & PAYMENT
+// ============================================================
 async function checkPlan() {
   if (!appData.phone) return;
   try {
@@ -1103,9 +1141,6 @@ async function openPay() {
 // CHECK ONBOARD
 // ============================================================
 function checkOnboard() {
-  console.log('🔍 Checking onboard...');
-  console.log('Name:', appData.name, 'Phone:', appData.phone);
-  
   if (appData.name && appData.phone && appData.phone.length === 10) {
     document.getElementById('onboard').style.display = 'none';
     document.getElementById('app').style.display = 'block';
@@ -1124,7 +1159,7 @@ document.getElementById('chat').innerHTML = `
   <img src="/sparsh.jpg" class="w-12 h-12 rounded-xl border-2 border-[#ff4d00] object-cover">
   <div class="bubble-ai">
     🔥 <b>OYE WARRIOR!</b><br><br>
-    Main hoon <b>Sparsh Singhal ka StudyGenie</b> — <b>KISI BHI QUESTION KA ANSWER!</b><br><br>
+    Main hoon <b>Sparsh Singhal ka StudyGenie</b><br><br>
     ✅ Physics Numericals → Full solution<br>
     ✅ Math Problems → Step-by-step<br>
     ✅ ANY Question → Answered!<br><br>
@@ -1152,5 +1187,5 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=port, debug=False)
 
 # ===================================================================
-# END - FINAL WORKING VERSION 🔥
+# END - FINAL COMPLETE FIX 🔥
 # ===================================================================
