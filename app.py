@@ -189,7 +189,7 @@ def ask_gemini():
         return jsonify({"ans": f"Oye {name}, API Key missing - BY SPARSH SINGHAL"})
     try:
         resp = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-3.6-flash",
             contents=f"You are StudyGenie by Sparsh Singhal. User {name}. Hinglish savage 180 words max. User: {q}",
         )
         return jsonify({"ans": resp.text})
