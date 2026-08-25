@@ -1,6 +1,6 @@
 # ===================================================================
-# STUDYGENIE - ULTIMATE AI BOT 🔥
-# By Sparsh Singhal - Answers EVERYTHING!
+# STUDYGENIE - FINAL WORKING VERSION 🔥
+# By Sparsh Singhal - Registration Fixed + AI Working
 # ===================================================================
 
 import os
@@ -14,7 +14,6 @@ import secrets
 from datetime import datetime
 from collections import defaultdict
 from functools import wraps
-import random
 
 # ===================================================================
 # Logging
@@ -242,11 +241,9 @@ class Storage:
 storage = Storage()
 
 # ===================================================================
-# ULTIMATE AI SERVICE - REAL ANSWERS 🔥
+# AI SERVICE
 # ===================================================================
-class UltimateAIService:
-    """Real AI that answers ANY question correctly."""
-    
+class AIService:
     def __init__(self):
         self.client = None
         if GENAI_AVAILABLE and GOOGLE_API_KEY:
@@ -256,58 +253,28 @@ class UltimateAIService:
                 log.info("✅ Gemini AI initialized")
             except Exception as e:
                 log.error(f"Gemini init failed: {e}")
-        
-        # Only for when AI completely fails
-        self.fallback = """⚠️ **Technical glitch!** 
-
-Sparsh Singhal ka StudyGenie is temporarily unavailable. 
-
-Please try again in a moment! 
-
-- BY SPARSH SINGHAL"""
     
     def generate(self, question, name="Warrior", is_pro=False):
-        """
-        REAL AI - Answers ANY question correctly!
-        Uses Google Gemini API for genuine responses.
-        """
-        
-        # If no API key, can't answer
         if not self.client:
-            return f"""🔴 **AI Service Not Configured**
+            return f"""⚠️ AI Service Not Configured
 
-Oye {name}! Google Gemini API key nahi mili!
-
-Please set GOOGLE_API_KEY in environment variables.
+Oye {name}! Please set GOOGLE_API_KEY in environment variables.
 
 - BY SPARSH SINGHAL"""
         
         try:
-            # Build smart prompt for any question
-            prompt = f"""You are StudyGenie - the world's most intelligent AI assistant created by Sparsh Singhal.
+            prompt = f"""You are StudyGenie by Sparsh Singhal. User: {name}. 
+Question: {question}
 
-**User:** {name}
-**Question:** {question}
+Give a complete, accurate answer. Show steps for numericals.
+Use Hinglish + English. Be helpful and encouraging.
 
-**INSTRUCTIONS:**
-1. Give a COMPLETE, ACCURATE answer
-2. Show step-by-step solution if it's a numerical/physics problem
-3. Use Hinglish + English mix (but keep it professional for technical answers)
-4. Add relevant formulas, equations, or concepts
-5. Be encouraging and helpful
-6. Keep the answer comprehensive but clear
-7. Format with bullet points, sections, or steps where helpful
-8. If it's a physics/math problem, show all steps clearly
-
-**Remember:** This is a REAL question from a student who needs help. Give them the CORRECT answer with proper explanation.
-
-**RESPONSE:**"""
-
-            # Get AI response
+Response:"""
+            
             response = self.client.generate_content(
                 prompt,
                 generation_config={
-                    "max_output_tokens": 600,
+                    "max_output_tokens": 500,
                     "temperature": 0.7
                 }
             )
@@ -318,18 +285,14 @@ Please set GOOGLE_API_KEY in environment variables.
             return f"⚠️ Could not generate response. Please try again.\n\n- BY SPARSH SINGHAL"
             
         except Exception as e:
-            log.error(f"AI generation error: {e}")
-            return f"""⚠️ **Error Occurred**
-
-Oye {name}! Kuch technical glitch ho gaya!
-
-Error: {str(e)}
+            log.error(f"AI error: {e}")
+            return f"""⚠️ Error: {str(e)}
 
 Please try again or rephrase your question.
 
 - BY SPARSH SINGHAL"""
 
-ai_service = UltimateAIService()
+ai_service = AIService()
 
 # ===================================================================
 # Payment Service
@@ -515,7 +478,6 @@ def update_xp():
 
 @app.route("/ask", methods=["POST"])
 def ask():
-    """REAL AI - Answers ANY question correctly! 🔥"""
     try:
         start_time = time.time()
         data = request.get_json(silent=True) or {}
@@ -527,34 +489,26 @@ def ask():
         if not question:
             return jsonify({"error": "Empty question"}), 400
         
-        # Check quota
         plan = storage.get_plan(phone) if phone else "free"
         used = storage.get_ask_count(uid)
         
         if plan == "free" and used >= FREE_ASK_LIMIT:
             return jsonify({
                 "limit_reached": True,
-                "ans": f"""🚀 **AMMO KHATAM!** 🔫
+                "ans": f"""🚀 AMMO KHATAM! 🔫
 
 Oye {name}! Your free ammo is over!
 
-💎 **RELOAD NOW - ₹49 Only!**
-✅ Unlimited Questions
-✅ All topics covered
-✅ Step-by-step solutions
-
-Click the **"RELOAD"** button below!
+💎 RELOAD NOW - ₹49 Only!
+Click the "RELOAD" button below!
 
 - BY SPARSH SINGHAL"""
             }), 402
         
-        # Generate REAL answer using AI
         response = ai_service.generate(question, name, plan == "pro")
         
-        # Update stats
         storage.increment_ask(uid)
         
-        # Update XP
         user = storage.get_user(phone) if phone else None
         xp_gained = 0
         level_up = False
@@ -673,14 +627,14 @@ def admin_force_pro():
         return jsonify({"error": "Failed"}), 500
 
 # ===================================================================
-# HTML - CLEAN INTERFACE
+# HTML - REGISTRATION WORKING 🔥
 # ===================================================================
 HTML_PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StudyGenie 🔥 - AI Tutor</title>
+<title>StudyGenie 🔥</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <style>
@@ -707,7 +661,7 @@ body { background: #050507; color: #fff; font-family: system-ui, sans-serif; min
 </head>
 <body>
 
-<!-- Onboard -->
+<!-- Onboard Modal -->
 <div id="onboard" style="position:fixed;inset:0;background:rgba(0,0,0,0.97);display:flex;align-items:center;justify-content:center;z-index:999;backdrop-filter:blur(10px)">
   <div class="hud max-w-[420px] w-full">
     <div class="flex items-center gap-4">
@@ -722,12 +676,12 @@ body { background: #050507; color: #fff; font-family: system-ui, sans-serif; min
       <input id="inpName" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="⚡ Your Name" maxlength="20">
       <input id="inpPhone" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="📱 10 digit phone" maxlength="10" type="tel">
     </div>
-    <button onclick="registerUser()" class="btn-fire w-full mt-4">🔥 ENTER BATTLEFIELD</button>
+    <button onclick="registerUser()" class="btn-fire w-full mt-4" id="registerBtn">🔥 ENTER BATTLEFIELD</button>
     <p id="registerStatus" class="text-xs text-zinc-500 mt-2 text-center"></p>
   </div>
 </div>
 
-<!-- Main -->
+<!-- Main App -->
 <div id="app" style="display:none;max-width:1500px;margin:0 auto;padding:16px">
   <div class="hud flex justify-between items-center sticky top-2 z-30">
     <div class="flex items-center gap-6">
@@ -792,7 +746,7 @@ body { background: #050507; color: #fff; font-family: system-ui, sans-serif; min
         <div id="chat" class="space-y-3"></div>
         <div class="mt-4 flex gap-2">
           <span class="text-[#ff4d00] font-black text-xl">></span>
-          <input id="q" class="flex-1 bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="🔥 ANY QUESTION - I'll answer with steps!" onkeypress="if(event.key==='Enter')ask()">
+          <input id="q" class="flex-1 bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="🔥 ANY QUESTION... I'll solve it!" onkeypress="if(event.key==='Enter')ask()">
           <button onclick="ask()" class="btn-fire">🔫 ASK</button>
         </div>
         <div class="mt-2 flex justify-between text-xs text-zinc-500">
@@ -806,7 +760,7 @@ body { background: #050507; color: #fff; font-family: system-ui, sans-serif; min
 
 <script>
 // ============================================================
-// STATE
+// STATE - USING appData NOT localStorage directly
 // ============================================================
 const STORAGE_KEY = 'studygenie_data';
 let appData = {
@@ -823,6 +777,7 @@ function loadData() {
     if (saved) {
       const data = JSON.parse(saved);
       appData = { ...appData, ...data };
+      console.log('✅ Data loaded:', appData);
     }
   } catch(e) {}
 }
@@ -830,6 +785,7 @@ function loadData() {
 function saveData() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+    console.log('✅ Data saved');
   } catch(e) {}
 }
 
@@ -854,34 +810,46 @@ function playSound(type) {
 }
 
 // ============================================================
-// REGISTRATION
+// REGISTRATION - FIXED ✅
 // ============================================================
 function registerUser() {
+  console.log('📝 Register button clicked!');
+  
   const nameInput = document.getElementById('inpName');
   const phoneInput = document.getElementById('inpPhone');
   const statusEl = document.getElementById('registerStatus');
+  const btn = document.getElementById('registerBtn');
   
   const name = nameInput.value.trim();
   const phone = phoneInput.value.trim().replace(/[^0-9]/g, '');
   
+  console.log('📝 Name:', name, 'Phone:', phone);
+  
   if (!name || name.length < 2) {
-    statusEl.textContent = '⚠️ Enter your name!';
+    statusEl.textContent = '⚠️ Please enter your name!';
     statusEl.style.color = '#ff4444';
+    playSound('empty');
     return;
   }
   
   if (!phone || phone.length !== 10) {
-    statusEl.textContent = '📱 Enter 10-digit phone!';
+    statusEl.textContent = '📱 Please enter a valid 10-digit phone number!';
     statusEl.style.color = '#ff4444';
+    playSound('empty');
     return;
   }
   
   statusEl.textContent = '⏳ Registering...';
   statusEl.style.color = '#ff8a00';
+  btn.disabled = true;
+  btn.textContent = '⏳ WAIT...';
   
+  // Save to appData
   appData.name = name;
   appData.phone = phone;
   saveData();
+  
+  console.log('📡 Sending to server:', {uid: appData.userId, name, phone});
   
   fetch('/register_user', {
     method: 'POST',
@@ -894,6 +862,7 @@ function registerUser() {
   })
   .then(res => res.json())
   .then(data => {
+    console.log('✅ Server response:', data);
     if (data.ok) {
       statusEl.textContent = '✅ Welcome ' + name + '!';
       statusEl.style.color = '#44ff88';
@@ -906,18 +875,24 @@ function registerUser() {
     } else {
       statusEl.textContent = '❌ ' + (data.error || 'Registration failed');
       statusEl.style.color = '#ff4444';
+      btn.disabled = false;
+      btn.textContent = '🔥 ENTER BATTLEFIELD';
     }
   })
-  .catch(() => {
-    statusEl.textContent = '❌ Network error. Try again.';
+  .catch(err => {
+    console.error('❌ Registration error:', err);
+    statusEl.textContent = '❌ Network error. Please try again.';
     statusEl.style.color = '#ff4444';
+    btn.disabled = false;
+    btn.textContent = '🔥 ENTER BATTLEFIELD';
   });
 }
 
 // ============================================================
-// APP
+// APP INIT
 // ============================================================
 function initApp() {
+  console.log('🚀 Initializing app...');
   document.getElementById('userName').textContent = appData.name.toUpperCase();
   document.getElementById('myId').textContent = '🆔 ' + appData.userId;
   document.getElementById('myPhone').textContent = '📱 ' + appData.phone.slice(0,2) + '******' + appData.phone.slice(-2);
@@ -947,9 +922,6 @@ function render() {
   document.getElementById('lamps').innerHTML = html;
 }
 
-// ============================================================
-// CHAT
-// ============================================================
 function appendBubble(text, isUser = false) {
   const chat = document.getElementById('chat');
   const div = document.createElement('div');
@@ -974,7 +946,7 @@ function appendBubble(text, isUser = false) {
 }
 
 // ============================================================
-// ASK - REAL AI 🔥
+// ASK - REAL AI
 // ============================================================
 async function ask() {
   if (!appData.name || !appData.phone) {
@@ -992,7 +964,7 @@ async function ask() {
   
   const typingDiv = document.createElement('div');
   typingDiv.className = 'mb-3';
-  typingDiv.innerHTML = '<div class="bubble-ai text-zinc-400">🔥 Sparsh Singhal\'s Genie is thinking...</div>';
+  typingDiv.innerHTML = '<div class="bubble-ai text-zinc-400">🔥 Thinking...</div>';
   document.getElementById('chat').appendChild(typingDiv);
   
   try {
@@ -1065,9 +1037,6 @@ async function loadBoard() {
   } catch(e) {}
 }
 
-// ============================================================
-// PLAN & PAYMENT
-// ============================================================
 async function checkPlan() {
   if (!appData.phone) return;
   try {
@@ -1113,12 +1082,11 @@ async function openPay() {
       amount: order.amount,
       currency: order.currency,
       name: "StudyGenie Pro 🔥",
-      description: "Unlimited Questions - Everything!",
       order_id: order.order_id,
       prefill: { name: appData.name, contact: appData.phone },
       theme: { color: "#ff4d00" },
       handler: function() {
-        alert('✅ PRO UNLOCKED! 🔥 Unlimited knowledge!');
+        alert('✅ PRO UNLOCKED! 🔥');
         appData.isPro = true;
         saveData();
         render();
@@ -1135,6 +1103,9 @@ async function openPay() {
 // CHECK ONBOARD
 // ============================================================
 function checkOnboard() {
+  console.log('🔍 Checking onboard...');
+  console.log('Name:', appData.name, 'Phone:', appData.phone);
+  
   if (appData.name && appData.phone && appData.phone.length === 10) {
     document.getElementById('onboard').style.display = 'none';
     document.getElementById('app').style.display = 'block';
@@ -1153,25 +1124,19 @@ document.getElementById('chat').innerHTML = `
   <img src="/sparsh.jpg" class="w-12 h-12 rounded-xl border-2 border-[#ff4d00] object-cover">
   <div class="bubble-ai">
     🔥 <b>OYE WARRIOR!</b><br><br>
-    Main hoon <b>Sparsh Singhal ka StudyGenie</b> — <b>KISI BHI TYPE KA QUESTION POOCHO!</b><br><br>
-    
-    ✅ **Physics Numericals** → Full solution<br>
-    ✅ **Math Problems** → Step-by-step<br>
-    ✅ **Chemistry Equations** → Balanced<br>
-    ✅ **Biology Concepts** → Explained<br>
-    ✅ **Tech Questions** → Detailed<br>
-    ✅ **ANY OTHER QUESTION** → Answered!<br><br>
-    
-    💪 <b>Kuch bhi pucho - main jawab dunga with steps!</b><br><br>
-    
+    Main hoon <b>Sparsh Singhal ka StudyGenie</b> — <b>KISI BHI QUESTION KA ANSWER!</b><br><br>
+    ✅ Physics Numericals → Full solution<br>
+    ✅ Math Problems → Step-by-step<br>
+    ✅ ANY Question → Answered!<br><br>
+    💪 <b>Kuch bhi pucho!</b><br><br>
     <span class="text-[#ff8a00] text-xs">BY SPARSH SINGHAL | 10 FREE AMMO</span>
   </div>
 </div>
 `;
 
 checkOnboard();
-console.log('🔥 StudyGenie Ultimate AI loaded!');
-console.log('📝 Ask ANY question - I will solve it!');
+console.log('🔥 StudyGenie loaded!');
+console.log('📝 Fill the form and click ENTER BATTLEFIELD');
 </script>
 </body></html>
 """
@@ -1187,5 +1152,5 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=port, debug=False)
 
 # ===================================================================
-# END - REAL AI BOT 🔥
+# END - FINAL WORKING VERSION 🔥
 # ===================================================================
