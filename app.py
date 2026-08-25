@@ -1,5 +1,5 @@
 # ===================================================================
-# STUDYGENIE - ULTIMATE BATTLE EDITION 🔥 (FIXED)
+# STUDYGENIE - PERMANENT FIX VERSION 🔥
 # By Sparsh Singhal - Vercel Optimized
 # ===================================================================
 
@@ -11,7 +11,7 @@ import logging
 import hmac
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 from typing import Optional, Dict, Any, List
 from functools import wraps
@@ -257,7 +257,7 @@ class Storage:
 storage = Storage()
 
 # ===================================================================
-# AI Service with Personality
+# AI Service
 # ===================================================================
 class AIService:
     def __init__(self):
@@ -285,7 +285,7 @@ class AIService:
             return random.choice(self.savage_lines).format(name=name) + " 💪 BY SPARSH SINGHAL"
         
         try:
-            context = "You are StudyGenie by Sparsh Singhal - the most savage and helpful AI tutor in the world. "
+            context = "You are StudyGenie by Sparsh Singhal - the most savage and helpful AI tutor. "
             context += f"User {name} is a { 'PRO' if is_pro else 'FREE' } user. "
             context += "Be savage, encouraging, use Hinglish, keep it under 150 words, add emojis."
             
@@ -515,7 +515,7 @@ Click "RELOAD" button below!
                 bonus = streak * 2
                 xp_gained += bonus
             # Random bonus
-            if random.random() < 0.1:  # 10% chance
+            if random.random() < 0.1:
                 bonus += 15
                 xp_gained += 15
                 bonus_text = "💥 CRITICAL HIT! +15 XP!"
@@ -627,7 +627,7 @@ def admin_force_pro():
         return jsonify({"error": "Failed"}), 500
 
 # ===================================================================
-# HTML - ULTIMATE BATTLE EDITION (FIXED REGISTRATION)
+# HTML - PERMANENT FIX with inline JavaScript that works
 # ===================================================================
 HTML_PAGE = """<!DOCTYPE html>
 <html lang="en">
@@ -639,238 +639,53 @@ HTML_PAGE = """<!DOCTYPE html>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { 
-  background: #050507; 
-  color: #fff; 
-  font-family: 'Segoe UI', system-ui, sans-serif;
-  min-height: 100vh;
-  background-image: radial-gradient(circle at 50% 0%, #1a1208 0%, #050507 60%);
-}
-.glow { 
-  box-shadow: 0 0 30px rgba(255, 77, 0, 0.3);
-  transition: box-shadow 0.3s;
-}
-.glow:hover { box-shadow: 0 0 50px rgba(255, 77, 0, 0.6); }
-.hud {
-  background: rgba(17, 17, 19, 0.95);
-  border: 1px solid #232326;
-  border-radius: 16px;
-  padding: 20px;
-  backdrop-filter: blur(10px);
-}
-.bubble-user {
-  background: linear-gradient(135deg, #fff, #f0f0f0);
-  color: #000;
-  border-radius: 14px 14px 2px 14px;
-  padding: 12px 18px;
-  font-weight: 900;
-  display: inline-block;
-}
-.bubble-ai {
-  background: #17171a;
-  border-left: 4px solid #ff4d00;
-  border-radius: 4px 16px 16px 16px;
-  padding: 14px 18px;
-  animation: slideIn 0.3s ease-out;
-}
-@keyframes slideIn {
-  from { opacity: 0; transform: translateX(-20px); }
-  to { opacity: 1; transform: translateX(0); }
-}
-.ammo {
-  width: 42px;
-  height: 52px;
-  background: #121216;
-  border: 2px solid #2e2e33;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin: 2px;
-  font-size: 20px;
-  transition: all 0.3s;
-}
-.ammo.used {
-  opacity: 0.15;
-  transform: scale(0.85);
-}
-.ammo:hover {
-  transform: scale(1.1);
-  border-color: #ff4d00;
-}
-.progress {
-  height: 14px;
-  background: #0f0f11;
-  border: 1px solid #2a2a2e;
-  border-radius: 4px;
-  overflow: hidden;
-}
-.progress > div {
-  height: 100%;
-  background: linear-gradient(90deg, #ff4d00, #ff8a00);
-  transition: width 0.5s ease;
-}
-#chat {
-  max-height: 55vh;
-  overflow-y: auto;
-  scroll-behavior: smooth;
-}
+body { background: #050507; color: #fff; font-family: system-ui, sans-serif; min-height: 100vh; background-image: radial-gradient(circle at 50% 0%, #1a1208 0%, #050507 60%); }
+.hud { background: rgba(17, 17, 19, 0.95); border: 1px solid #232326; border-radius: 16px; padding: 20px; backdrop-filter: blur(10px); }
+.btn-fire { background: linear-gradient(90deg, #ff4d00, #ff8a00); border: none; padding: 12px 28px; border-radius: 12px; font-weight: 900; cursor: pointer; transition: all 0.3s; color: #fff; font-size: 16px; }
+.btn-fire:hover { transform: scale(1.05); box-shadow: 0 0 30px rgba(255, 77, 0, 0.4); }
+.btn-fire:active { transform: scale(0.95); }
+.bubble-ai { background: #17171a; border-left: 4px solid #ff4d00; border-radius: 4px 16px 16px 16px; padding: 14px 18px; }
+.bubble-user { background: #fff; color: #000; border-radius: 14px 14px 2px 14px; padding: 12px 18px; font-weight: 900; display: inline-block; }
+.progress { height: 14px; background: #0f0f11; border: 1px solid #2a2a2e; border-radius: 4px; overflow: hidden; }
+.progress > div { height: 100%; background: linear-gradient(90deg, #ff4d00, #ff8a00); transition: width 0.5s; }
+.ammo { width: 42px; height: 52px; background: #121216; border: 2px solid #2e2e33; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; margin: 2px; font-size: 20px; transition: all 0.3s; }
+.ammo.used { opacity: 0.15; transform: scale(0.85); }
+#chat { max-height: 55vh; overflow-y: auto; scroll-behavior: smooth; }
 #chat::-webkit-scrollbar { width: 4px; }
 #chat::-webkit-scrollbar-track { background: #0f0f11; }
 #chat::-webkit-scrollbar-thumb { background: #ff4d00; border-radius: 4px; }
-.input-glow:focus {
-  border-color: #ff4d00 !important;
-  box-shadow: 0 0 20px rgba(255, 77, 0, 0.2);
-}
-.btn-fire {
-  background: linear-gradient(90deg, #ff4d00, #ff8a00);
-  border: none;
-  padding: 12px 28px;
-  border-radius: 12px;
-  font-weight: 900;
-  cursor: pointer;
-  transition: all 0.3s;
-  color: #fff;
-  font-size: 16px;
-}
-.btn-fire:hover {
-  transform: scale(1.05);
-  box-shadow: 0 0 30px rgba(255, 77, 0, 0.4);
-}
-.btn-fire:active { transform: scale(0.95); }
-.floating {
-  animation: float 3s ease-in-out infinite;
-}
-@keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
-}
-.achievement {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  background: linear-gradient(135deg, #ff4d00, #ff8a00);
-  padding: 16px 24px;
-  border-radius: 12px;
-  font-weight: 900;
-  z-index: 9999;
-  animation: slideDown 0.5s ease-out;
-}
-@keyframes slideDown {
-  from { transform: translateY(-100px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-.level-up {
-  font-size: 48px;
-  text-align: center;
-  animation: levelUp 0.8s ease-out;
-}
-@keyframes levelUp {
-  0% { transform: scale(0) rotate(-10deg); opacity: 0; }
-  50% { transform: scale(1.5) rotate(5deg); opacity: 1; }
-  100% { transform: scale(1) rotate(0); opacity: 1; }
-}
+.input-glow:focus { border-color: #ff4d00 !important; box-shadow: 0 0 20px rgba(255, 77, 0, 0.2); }
+@keyframes slideIn { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+.bubble-ai { animation: slideIn 0.3s ease-out; }
 </style>
 </head>
 <body>
 
-<!-- Sound Effects -->
-<script>
-// Audio context for sound effects
-let audioCtx = null;
-let soundsEnabled = true;
+<!-- Onboard Modal -->
+<div id="onboard" style="position:fixed;inset:0;background:rgba(0,0,0,0.97);display:flex;align-items:center;justify-content:center;z-index:999;backdrop-filter:blur(10px)">
+  <div class="hud max-w-[420px] w-full">
+    <div class="flex items-center gap-4">
+      <img src="/sparsh.jpg" class="w-16 h-16 rounded-xl border-2 border-[#ff4d00] object-cover">
+      <div>
+        <h2 class="text-2xl font-black">⚔️ REGISTER</h2>
+        <p class="text-[#ff8a00] text-sm font-bold">BY SPARSH SINGHAL</p>
+      </div>
+    </div>
+    <p class="text-sm text-zinc-400 mt-3">Enter the battlefield, warrior!</p>
+    <div class="mt-4 space-y-3">
+      <input id="inpName" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="⚡ Your Name" maxlength="20">
+      <input id="inpPhone" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="📱 10 digit phone" maxlength="10" type="tel">
+    </div>
+    <button onclick="registerUser()" class="btn-fire w-full mt-4" id="registerBtn">🔥 ENTER BATTLEFIELD</button>
+    <p id="registerStatus" class="text-xs text-zinc-500 mt-2 text-center"></p>
+  </div>
+</div>
 
-function initAudio() {
-  if (!audioCtx) {
-    try {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    } catch(e) {}
-  }
-}
-
-function playSound(type) {
-  if (!soundsEnabled) return;
-  try {
-    initAudio();
-    if (!audioCtx) return;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    
-    switch(type) {
-      case 'fire':
-        osc.frequency.value = 800;
-        osc.type = 'square';
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.15);
-        break;
-      case 'hit':
-        osc.frequency.value = 600;
-        osc.type = 'sine';
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.2);
-        break;
-      case 'level':
-        osc.frequency.value = 500;
-        osc.type = 'sine';
-        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
-        osc.frequency.linearRampToValueAtTime(1000, audioCtx.currentTime + 0.4);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.5);
-        break;
-      case 'empty':
-        osc.frequency.value = 200;
-        osc.type = 'sawtooth';
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.6);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.6);
-        break;
-      case 'pro':
-        osc.frequency.value = 440;
-        osc.type = 'sine';
-        gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        osc.frequency.linearRampToValueAtTime(880, audioCtx.currentTime + 0.3);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.4);
-        break;
-      case 'streak':
-        osc.frequency.value = 600;
-        osc.type = 'square';
-        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-        osc.frequency.linearRampToValueAtTime(900, audioCtx.currentTime + 0.15);
-        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.2);
-        break;
-    }
-  } catch(e) {}
-}
-
-// Toggle sound
-function toggleSound() {
-  soundsEnabled = !soundsEnabled;
-  document.getElementById('soundToggle').textContent = soundsEnabled ? '🔊' : '🔇';
-  if (soundsEnabled) playSound('hit');
-}
-</script>
-
-<div id="achievement" style="display:none" class="achievement"></div>
-
-<div class="max-w-[1500px] mx-auto p-4 pb-20">
-  <!-- HUD -->
+<!-- Main App -->
+<div id="app" style="display:none;max-width:1500px;margin:0 auto;padding:16px">
   <div class="hud flex justify-between items-center sticky top-2 z-30">
     <div class="flex items-center gap-6">
-      <img id="logo" src="/sparsh.jpg" 
-           class="w-24 h-24 rounded-[16px] border-4 border-[#ff4d00] object-cover glow cursor-pointer floating"
-           onclick="playSound('hit')">
+      <img src="/sparsh.jpg" class="w-24 h-24 rounded-[16px] border-4 border-[#ff4d00] object-cover cursor-pointer">
       <div>
         <h1 class="text-2xl font-black tracking-wider">STUDYGENIE <span class="text-[#ff4d00]">⚔️</span></h1>
         <p class="text-[#ff8a00] text-sm font-bold">BY SPARSH SINGHAL</p>
@@ -883,7 +698,6 @@ function toggleSound() {
       </div>
     </div>
     <div class="flex items-center gap-4">
-      <button onclick="toggleSound()" id="soundToggle" class="text-2xl hover:scale-110 transition-transform">🔊</button>
       <div class="text-right">
         <div class="text-xs text-zinc-500 tracking-widest">🔥 AMMO</div>
         <div class="text-3xl font-black"><span id="ammoLeft">10</span>/10</div>
@@ -893,52 +707,29 @@ function toggleSound() {
         <div class="text-xs text-zinc-500 tracking-widest">💎 PLAN</div>
         <div id="planDisplay" class="font-bold text-[#ff8a00]">FREE</div>
       </div>
-      <div class="text-right">
-        <div class="text-xs text-zinc-500 tracking-widest">🔥 STREAK</div>
-        <div id="streakDisplay" class="font-bold text-[#ff4d00]">0</div>
-      </div>
     </div>
   </div>
 
-  <!-- Main Grid -->
   <div class="grid grid-cols-12 gap-4 mt-4">
-    <!-- Sidebar -->
     <div class="col-span-12 lg:col-span-3 space-y-4">
-      <!-- Missions -->
       <div class="hud">
         <p class="text-xs text-zinc-500 tracking-widest">🎯 MISSIONS</p>
         <div class="bg-black p-3 rounded mt-2 border-l-4 border-[#ff4d00]">
-          <div class="flex justify-between text-sm font-bold">
-            <span>💪 3 DOUBTS</span>
-            <span id="q1">0/3</span>
-          </div>
+          <div class="flex justify-between text-sm font-bold"><span>💪 3 DOUBTS</span><span id="q1">0/3</span></div>
           <div class="progress mt-1"><div id="q1b" style="width:0%"></div></div>
         </div>
         <div class="bg-black p-3 rounded mt-2 border-l-4 border-[#ff8a00]">
-          <div class="flex justify-between text-sm font-bold">
-            <span>🔥 10 QUESTIONS</span>
-            <span id="q2">0/10</span>
-          </div>
+          <div class="flex justify-between text-sm font-bold"><span>🔥 10 QUESTIONS</span><span id="q2">0/10</span></div>
           <div class="progress mt-1"><div id="q2b" style="width:0%"></div></div>
-        </div>
-        <div class="bg-black p-3 rounded mt-2 border-l-4 border-[#ff4d00]">
-          <div class="flex justify-between text-sm font-bold">
-            <span>⚡ STREAK BONUS</span>
-            <span id="streakBonus">+0 XP</span>
-          </div>
         </div>
       </div>
 
-      <!-- Ammo Crate -->
       <div class="hud">
         <p class="text-xs text-zinc-500 tracking-widest">🔫 AMMO CRATE</p>
         <div id="lamps" class="mt-2"></div>
-        <button onclick="openPay()" class="btn-fire w-full mt-3 text-sm">
-          💎 RELOAD - ₹49
-        </button>
+        <button onclick="openPay()" class="btn-fire w-full mt-3 text-sm">💎 RELOAD - ₹49</button>
       </div>
 
-      <!-- Leaderboard -->
       <div class="hud">
         <p class="text-xs text-[#ff4d00] tracking-widest font-black">🏆 LEADERBOARD</p>
         <div id="board" class="mt-2 space-y-1"></div>
@@ -950,19 +741,16 @@ function toggleSound() {
       </div>
     </div>
 
-    <!-- Chat -->
     <div class="col-span-12 lg:col-span-9">
       <div class="hud" style="min-height:500px">
         <div id="chat" class="space-y-3"></div>
         <div class="mt-4 flex gap-2">
           <span class="text-[#ff4d00] font-black text-xl">></span>
-          <input id="q" class="flex-1 bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow"
-                 placeholder="🔥 ASK YOUR DOUBT..." 
-                 onkeypress="if(event.key==='Enter')ask()">
+          <input id="q" class="flex-1 bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="🔥 ASK YOUR DOUBT..." onkeypress="if(event.key==='Enter')ask()">
           <button onclick="ask()" class="btn-fire">🔫 FIRE</button>
         </div>
         <div class="mt-2 flex justify-between text-xs text-zinc-500">
-          <span>💡 Pro tip: 10 free questions, then ₹49 for unlimited!</span>
+          <span>💡 10 free questions, then ₹49 for unlimited!</span>
           <span>❤️ By Sparsh Singhal</span>
         </div>
       </div>
@@ -970,194 +758,290 @@ function toggleSound() {
   </div>
 </div>
 
-<!-- Onboard Modal -->
-<div id="onboard" style="position:fixed;inset:0;background:rgba(0,0,0,0.97);display:flex;align-items:center;justify-content:center;z-index:999;backdrop-filter:blur(10px)">
-  <div class="hud max-w-[420px] w-full animate-pulse">
-    <div class="flex items-center gap-4">
-      <img src="/sparsh.jpg" class="w-16 h-16 rounded-xl border-2 border-[#ff4d00] object-cover">
-      <div>
-        <h2 class="text-2xl font-black">⚔️ REGISTER</h2>
-        <p class="text-[#ff8a00] text-sm font-bold">BY SPARSH SINGHAL</p>
-      </div>
-    </div>
-    <p class="text-sm text-zinc-400 mt-3">Enter the battlefield, warrior!</p>
-    <div class="mt-4 space-y-3">
-      <input id="inpName" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="⚡ Your Name" maxlength="20" value="Sparsh Singhal">
-      <input id="inpPhone" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="📱 10 digit phone" maxlength="10" type="tel" value="9540690819">
-    </div>
-    <button onclick="register()" class="btn-fire w-full mt-4" id="registerBtn">🔥 ENTER BATTLEFIELD</button>
-  </div>
-</div>
-
 <script>
-// ==================== STATE ====================
-let userId = localStorage.getItem('uid') || 'user_' + Math.random().toString(36).substr(2,9);
-localStorage.setItem('uid', userId);
+// ============================================================
+// PERMANENT FIX - All JavaScript in one place
+// ============================================================
 
-let name = localStorage.getItem('name') || '';
-let phone = localStorage.getItem('phone') || '';
-let isPro = localStorage.getItem('pro') === 'true';
-let stats = JSON.parse(localStorage.getItem('stats') || '{"xp":0,"level":1,"wishes":0,"q1":0,"q2":0,"streak":0,"totalXp":0}');
+// ============================================================
+// STATE
+// ============================================================
+const STORAGE_KEY = 'studygenie_data';
+let appData = {
+  userId: 'user_' + Math.random().toString(36).substr(2,9),
+  name: '',
+  phone: '',
+  isPro: false,
+  stats: { xp: 0, level: 1, wishes: 0, q1: 0, q2: 0, totalXp: 0 }
+};
 
-console.log('🔄 StudyGenie loaded!');
-console.log('📱 Phone:', phone);
-console.log('👤 Name:', name);
-console.log('💎 Is PRO:', isPro);
-
-// ==================== ONBOARD ====================
-function checkOnboard() {
-  console.log('🔍 Checking onboard status...');
-  console.log('Name:', name, 'Phone:', phone);
-  
-  if (name && phone && phone.length == 10) {
-    document.getElementById('onboard').style.display = 'none';
-    document.getElementById('userName').textContent = name.toUpperCase();
-    document.getElementById('myId').textContent = '🆔 ' + userId;
-    document.getElementById('myPhone').textContent = '📱 ' + phone.slice(0,2) + '******' + phone.slice(-2);
-    console.log('✅ User already registered');
-    return true;
-  } else {
-    document.getElementById('onboard').style.display = 'flex';
-    console.log('❌ User not registered');
-    return false;
+// Load saved data
+function loadData() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const data = JSON.parse(saved);
+      appData = { ...appData, ...data };
+      console.log('✅ Data loaded:', appData);
+    }
+  } catch(e) {
+    console.log('⚠️ No saved data found');
   }
 }
 
-function register() {
+function saveData() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+    console.log('✅ Data saved');
+  } catch(e) {
+    console.log('⚠️ Failed to save data');
+  }
+}
+
+loadData();
+
+// ============================================================
+// AUDIO (Simple)
+// ============================================================
+let audioCtx = null;
+
+function playSound(type) {
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.15);
+  } catch(e) {}
+}
+
+// ============================================================
+// REGISTRATION - FIXED
+// ============================================================
+function registerUser() {
   console.log('📝 Register button clicked!');
   
-  let nameInput = document.getElementById('inpName');
-  let phoneInput = document.getElementById('inpPhone');
+  const nameInput = document.getElementById('inpName');
+  const phoneInput = document.getElementById('inpPhone');
+  const statusEl = document.getElementById('registerStatus');
   
-  let n = nameInput.value.trim();
-  let p = phoneInput.value.trim().replace(/[^0-9]/g,'');
+  const name = nameInput.value.trim();
+  const phone = phoneInput.value.trim().replace(/[^0-9]/g, '');
   
-  console.log('📝 Name:', n, 'Phone:', p);
+  console.log('📝 Name:', name, 'Phone:', phone);
   
-  if (n.length < 2) {
-    alert('⚠️ Please enter your name!');
+  if (!name || name.length < 2) {
+    statusEl.textContent = '⚠️ Please enter your name!';
+    statusEl.style.color = '#ff4444';
     playSound('empty');
     return;
   }
   
-  if (p.length != 10) {
-    alert('📱 Please enter a valid 10-digit phone number!');
+  if (!phone || phone.length !== 10) {
+    statusEl.textContent = '📱 Please enter a valid 10-digit phone number!';
+    statusEl.style.color = '#ff4444';
     playSound('empty');
     return;
   }
   
-  // Save to localStorage
-  name = n;
-  phone = p;
-  localStorage.setItem('name', name);
-  localStorage.setItem('phone', phone);
+  statusEl.textContent = '⏳ Registering...';
+  statusEl.style.color = '#ff8a00';
   
-  console.log('✅ Saved to localStorage - Name:', name, 'Phone:', phone);
+  // Save to app data
+  appData.name = name;
+  appData.phone = phone;
+  appData.userId = appData.userId || 'user_' + Math.random().toString(36).substr(2,9);
+  saveData();
   
-  // Play sound
-  playSound('level');
-  
-  // Hide onboard
-  document.getElementById('onboard').style.display = 'none';
-  document.getElementById('userName').textContent = name.toUpperCase();
-  document.getElementById('myId').textContent = '🆔 ' + userId;
-  document.getElementById('myPhone').textContent = '📱 ' + phone.slice(0,2) + '******' + phone.slice(-2);
+  console.log('✅ Saved to localStorage');
   
   // Register with server
-  console.log('📡 Registering with server...');
   fetch('/register_user', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({uid: userId, name, phone})
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      uid: appData.userId,
+      name: name,
+      phone: phone
+    })
   })
   .then(res => res.json())
   .then(data => {
     console.log('✅ Server response:', data);
     if (data.ok) {
-      showAchievement('🔥 Welcome ' + name + '!', 'success');
-      updateLeaderboard();
-      checkPlan();
+      statusEl.textContent = '✅ Registration successful! Welcome ' + name + '!';
+      statusEl.style.color = '#44ff88';
+      playSound('level');
+      setTimeout(() => {
+        document.getElementById('onboard').style.display = 'none';
+        document.getElementById('app').style.display = 'block';
+        initApp();
+      }, 1000);
     } else {
-      alert('❌ Registration failed: ' + (data.error || 'Unknown error'));
+      statusEl.textContent = '❌ Registration failed: ' + (data.error || 'Unknown error');
+      statusEl.style.color = '#ff4444';
     }
   })
   .catch(err => {
     console.error('❌ Registration error:', err);
-    alert('❌ Network error. Please try again.');
+    statusEl.textContent = '❌ Network error. Please try again.';
+    statusEl.style.color = '#ff4444';
   });
 }
 
-// ==================== RENDER ====================
+// ============================================================
+// INIT APP
+// ============================================================
+function initApp() {
+  console.log('🚀 Initializing app...');
+  document.getElementById('userName').textContent = appData.name.toUpperCase();
+  document.getElementById('myId').textContent = '🆔 ' + appData.userId;
+  document.getElementById('myPhone').textContent = '📱 ' + appData.phone.slice(0,2) + '******' + appData.phone.slice(-2);
+  render();
+  loadBoard();
+  checkPlan();
+  setInterval(loadBoard, 10000);
+}
+
+// ============================================================
+// RENDER
+// ============================================================
 function render() {
-  document.getElementById('ammoLeft').textContent = isPro ? '∞' : (10 - stats.wishes);
-  document.getElementById('lvl').textContent = stats.level;
-  document.getElementById('xpBar').style.width = stats.xp + '%';
-  document.getElementById('xpText').textContent = stats.xp + '/100';
-  document.getElementById('q1').textContent = stats.q1 + '/3';
-  document.getElementById('q1b').style.width = (stats.q1/3*100) + '%';
-  document.getElementById('q2').textContent = stats.q2 + '/10';
-  document.getElementById('q2b').style.width = (stats.q2/10*100) + '%';
-  document.getElementById('planDisplay').textContent = isPro ? '💎 PRO' : 'FREE';
-  document.getElementById('planDisplay').className = isPro ? 'font-bold text-[#ff4d00]' : 'font-bold text-[#ff8a00]';
-  document.getElementById('streakDisplay').textContent = stats.streak || 0;
-  document.getElementById('streakBonus').textContent = stats.streak >= 3 ? '+' + (stats.streak * 2) + ' XP' : '+0 XP';
+  const s = appData.stats;
+  document.getElementById('ammoLeft').textContent = appData.isPro ? '∞' : (10 - s.wishes);
+  document.getElementById('lvl').textContent = s.level;
+  document.getElementById('xpBar').style.width = s.xp + '%';
+  document.getElementById('xpText').textContent = s.xp + '/100';
+  document.getElementById('q1').textContent = s.q1 + '/3';
+  document.getElementById('q1b').style.width = (s.q1/3*100) + '%';
+  document.getElementById('q2').textContent = s.q2 + '/10';
+  document.getElementById('q2b').style.width = (s.q2/10*100) + '%';
+  document.getElementById('planDisplay').textContent = appData.isPro ? '💎 PRO' : 'FREE';
+  document.getElementById('planDisplay').className = appData.isPro ? 'font-bold text-[#ff4d00]' : 'font-bold text-[#ff8a00]';
   
-  // Ammo lamps
   let html = '';
   for (let i = 0; i < 10; i++) {
-    let used = i < stats.wishes && !isPro;
-    html += `<div class="ammo${used ? ' used' : ''}" onclick="playSound('click')">${used ? '💨' : '🪔'}</div>`;
+    let used = i < s.wishes && !appData.isPro;
+    html += `<div class="ammo${used ? ' used' : ''}">${used ? '💨' : '🪔'}</div>`;
   }
   document.getElementById('lamps').innerHTML = html;
 }
 
-function save() {
-  localStorage.setItem('stats', JSON.stringify(stats));
-  render();
+// ============================================================
+// ASK
+// ============================================================
+function appendBubble(text, isUser = false) {
+  const chat = document.getElementById('chat');
+  const div = document.createElement('div');
+  div.className = isUser ? 'text-right mb-3' : 'mb-3';
+  
+  const bubble = document.createElement('div');
+  bubble.className = isUser ? 'bubble-user' : 'bubble-ai';
+  bubble.textContent = text;
+  
+  if (!isUser) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'flex gap-3';
+    const img = document.createElement('img');
+    img.src = '/sparsh.jpg';
+    img.className = 'w-10 h-10 rounded-xl border-2 border-[#ff4d00] object-cover';
+    wrapper.appendChild(img);
+    wrapper.appendChild(bubble);
+    div.appendChild(wrapper);
+  } else {
+    div.appendChild(bubble);
+  }
+  
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
 }
 
-// ==================== ACHIEVEMENTS ====================
-function showAchievement(text, type = 'success') {
-  const el = document.getElementById('achievement');
-  const colors = {
-    success: 'linear-gradient(135deg, #00c853, #64dd17)',
-    pro: 'linear-gradient(135deg, #ff4d00, #ff8a00)',
-    level: 'linear-gradient(135deg, #ff6f00, #ffab00)'
-  };
-  el.style.background = colors[type] || colors.success;
-  el.textContent = text;
-  el.style.display = 'block';
-  playSound(type === 'level' ? 'level' : 'hit');
-  setTimeout(() => { el.style.display = 'none'; }, 3000);
-}
-
-// ==================== LEADERBOARD ====================
-async function updateLeaderboard() {
+async function ask() {
+  if (!appData.name || !appData.phone) {
+    document.getElementById('onboard').style.display = 'flex';
+    return;
+  }
+  
+  const input = document.getElementById('q');
+  const q = input.value.trim();
+  if (!q) return;
+  
+  playSound('fire');
+  appendBubble(q, true);
+  input.value = '';
+  
+  const typingDiv = document.createElement('div');
+  typingDiv.className = 'mb-3';
+  typingDiv.innerHTML = '<div class="bubble-ai text-zinc-400">⏳ Genie aiming...</div>';
+  document.getElementById('chat').appendChild(typingDiv);
+  
   try {
-    await fetch('/update_xp', {
+    const res = await fetch('/ask', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        uid: userId,
-        name: name || 'Warrior',
-        phone: phone || '',
-        xp: stats.totalXp || ((stats.level-1)*100 + stats.xp)
+        q: q,
+        name: appData.name,
+        phone: appData.phone,
+        uid: appData.userId
       })
     });
-  } catch(e) {}
+    
+    typingDiv.remove();
+    const data = await res.json();
+    
+    if (res.status === 402 || data.limit_reached) {
+      playSound('empty');
+      appendBubble(data.ans, false);
+      setTimeout(openPay, 2000);
+      return;
+    }
+    
+    // Update stats
+    const s = appData.stats;
+    s.wishes++;
+    s.q1 = Math.min(3, s.q1 + 1);
+    s.q2 = Math.min(10, s.q2 + 1);
+    s.xp += data.xp_gained || 12;
+    s.totalXp = (s.totalXp || 0) + (data.xp_gained || 12);
+    
+    if (data.level_up) {
+      s.level = data.level;
+      playSound('level');
+      appendBubble('🔥 LEVEL UP - LVL ' + data.level + '!', false);
+    }
+    
+    saveData();
+    render();
+    playSound('hit');
+    appendBubble(data.ans, false);
+    
+  } catch(e) {
+    typingDiv.remove();
+    appendBubble('⚠️ Try again! - BY SPARSH SINGHAL', false);
+  }
 }
 
+// ============================================================
+// LEADERBOARD
+// ============================================================
 async function loadBoard() {
   try {
-    let r = await fetch('/leaderboard');
-    let d = await r.json();
+    const res = await fetch('/leaderboard');
+    const data = await res.json();
     let html = '';
-    if (d.length === 0) {
+    if (data.length === 0) {
       html = '<div class="text-zinc-500 text-center py-2">No warriors yet</div>';
     } else {
-      d.forEach((u, i) => {
-        let isMe = u.id === userId;
-        let medal = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
+      data.forEach((u, i) => {
+        const isMe = u.id === appData.userId;
+        const medal = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
         html += `<div class="flex justify-between items-center p-2 rounded border ${isMe ? 'bg-[#ff4d00]/20 border-[#ff4d00]/50' : 'bg-black border-zinc-800'}">
           <span class="text-sm">${medal} ${u.name} ${isMe ? '⭐' : ''}</span>
           <span class="text-[#ff4d00] font-bold">${u.xp}XP</span>
@@ -1168,42 +1052,46 @@ async function loadBoard() {
   } catch(e) {}
 }
 
-// ==================== PLAN CHECK ====================
+// ============================================================
+// PLAN CHECK
+// ============================================================
 async function checkPlan() {
-  if (!phone) return;
+  if (!appData.phone) return;
   try {
-    let r = await fetch('/check_plan', {
+    const res = await fetch('/check_plan', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({phone})
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: appData.phone })
     });
-    let d = await r.json();
-    if (d.plan === 'pro') {
-      isPro = true;
-      localStorage.setItem('pro', 'true');
+    const data = await res.json();
+    if (data.plan === 'pro') {
+      appData.isPro = true;
+      saveData();
       render();
-      showAchievement('💎 PRO UNLOCKED! Unlimited ammo!', 'pro');
-      playSound('pro');
     }
   } catch(e) {}
 }
 
-// ==================== PAYMENT ====================
+// ============================================================
+// PAYMENT
+// ============================================================
 async function openPay() {
-  playSound('empty');
-  if (!phone || phone.length !== 10) {
-    alert('📱 Register first!');
+  if (!appData.phone || appData.phone.length !== 10) {
     document.getElementById('onboard').style.display = 'flex';
     return;
   }
   
   try {
-    let res = await fetch('/create_order', {
+    const res = await fetch('/create_order', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({uid: userId, name, phone})
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        uid: appData.userId,
+        name: appData.name,
+        phone: appData.phone
+      })
     });
-    let order = await res.json();
+    const order = await res.json();
     
     if (order.error) {
       alert('❌ ' + order.error);
@@ -1217,13 +1105,13 @@ async function openPay() {
       name: "StudyGenie Pro 🔥",
       description: "Unlimited Ammo + All Features",
       order_id: order.order_id,
-      prefill: {name, contact: phone},
-      theme: {color: "#ff4d00"},
+      prefill: { name: appData.name, contact: appData.phone },
+      theme: { color: "#ff4d00" },
       handler: function() {
         playSound('pro');
-        showAchievement('✅ PRO UNLOCKED! You\'re a legend! 🎉', 'pro');
-        localStorage.setItem('pro', 'true');
-        isPro = true;
+        alert('✅ PRO UNLOCKED! You\'re a legend! 🎉');
+        appData.isPro = true;
+        saveData();
         render();
         setTimeout(() => location.reload(), 1500);
       }
@@ -1234,142 +1122,29 @@ async function openPay() {
   }
 }
 
-// ==================== CHAT ====================
-function appendBubble(text, isUser = false) {
-  let chat = document.getElementById('chat');
-  let div = document.createElement('div');
-  div.className = isUser ? 'text-right mb-3' : 'mb-3';
+// ============================================================
+// CHECK ONBOARD STATUS
+// ============================================================
+function checkOnboard() {
+  console.log('🔍 Checking onboard...');
+  console.log('Name:', appData.name, 'Phone:', appData.phone);
   
-  let bubble = document.createElement('div');
-  bubble.className = isUser ? 'bubble-user' : 'bubble-ai';
-  bubble.textContent = text;
-  
-  if (!isUser) {
-    let wrapper = document.createElement('div');
-    wrapper.className = 'flex gap-3';
-    let img = document.createElement('img');
-    img.src = '/sparsh.jpg';
-    img.className = 'w-10 h-10 rounded-xl border-2 border-[#ff4d00] object-cover';
-    wrapper.appendChild(img);
-    wrapper.appendChild(bubble);
-    div.appendChild(wrapper);
+  if (appData.name && appData.phone && appData.phone.length === 10) {
+    document.getElementById('onboard').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    initApp();
   } else {
-    div.appendChild(bubble);
-  }
-  
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-  return div;
-}
-
-// ==================== ASK ====================
-async function ask() {
-  if (!name || !phone) {
     document.getElementById('onboard').style.display = 'flex';
-    return;
-  }
-  
-  let input = document.getElementById('q');
-  let q = input.value.trim();
-  if (!q) return;
-  
-  playSound('fire');
-  appendBubble(q, true);
-  input.value = '';
-  
-  let typing = appendBubble('⏳ Genie aiming...', false);
-  typing.querySelector('.bubble-ai').className = 'bubble-ai text-zinc-400 animate-pulse';
-  
-  try {
-    let res = await fetch('/ask', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({q, name, phone, uid: userId})
-    });
-    
-    typing.remove();
-    let data = await res.json();
-    
-    if (res.status === 402 || data.limit_reached) {
-      playSound('empty');
-      appendBubble(data.ans, false);
-      setTimeout(openPay, 2000);
-      return;
-    }
-    
-    // Update stats
-    stats.wishes++;
-    stats.q1 = Math.min(3, stats.q1 + 1);
-    stats.q2 = Math.min(10, stats.q2 + 1);
-    stats.xp += data.xp_gained || 12;
-    stats.totalXp = (stats.totalXp || 0) + (data.xp_gained || 12);
-    
-    // Streak
-    if (data.streak) {
-      stats.streak = data.streak;
-      if (data.streak >= 3) {
-        playSound('streak');
-        showAchievement(`🔥 ${data.streak} DAY STREAK! +${data.streak*2} XP Bonus!`, 'success');
-      }
-    }
-    
-    // Level up
-    if (data.level_up) {
-      stats.level = data.level;
-      playSound('level');
-      showAchievement(`🎉 LEVEL UP! You're now Level ${data.level}!`, 'level');
-      let lvlDiv = appendBubble(`🔥 LEVEL UP - LVL ${data.level}!`, false);
-      lvlDiv.querySelector('.bubble-ai').className = 'bubble-ai text-[#ff4d00] font-bold text-xl text-center level-up';
-    }
-    
-    // Bonus
-    if (data.bonus_text) {
-      showAchievement(data.bonus_text, 'success');
-    }
-    
-    save();
-    playSound('hit');
-    appendBubble(data.ans, false);
-    
-  } catch(e) {
-    typing.remove();
-    playSound('empty');
-    appendBubble('⚠️ Technical glitch! Try again - BY SPARSH SINGHAL', false);
+    document.getElementById('app').style.display = 'none';
   }
 }
 
-// ==================== LOGO EASTER EGG ====================
-let clickCount = 0;
-document.getElementById('logo').addEventListener('click', () => {
-  playSound('click');
-  clickCount++;
-  if (clickCount >= 5) {
-    let code = prompt('🔐 DEV ACCESS - Code:');
-    if (code === 'sparsh123') {
-      let isDev = localStorage.getItem('dev') === 'true';
-      isDev = !isDev;
-      localStorage.setItem('dev', isDev);
-      showAchievement(isDev ? '🛡️ GOD MODE ACTIVATED' : '⚡ GOD MODE DEACTIVATED', 'pro');
-      playSound('level');
-    } else if (code !== null) {
-      playSound('empty');
-      alert('⛔ ACCESS DENIED!');
-    }
-    clickCount = 0;
-  }
-  setTimeout(() => clickCount = 0, 3000);
-});
+// ============================================================
+// INIT - RUN ON PAGE LOAD
+// ============================================================
+console.log('🔥 StudyGenie loading...');
 
-// ==================== INIT ====================
-console.log('🚀 Initializing StudyGenie...');
-checkOnboard();
-render();
-loadBoard();
-checkPlan();
-setInterval(loadBoard, 10000);
-setInterval(save, 30000);
-
-// Initial chat message
+// Set up initial chat
 document.getElementById('chat').innerHTML = `
 <div class="flex gap-3">
   <img src="/sparsh.jpg" class="w-12 h-12 rounded-xl border-2 border-[#ff4d00] object-cover">
@@ -1377,22 +1152,19 @@ document.getElementById('chat').innerHTML = `
     🔥 <b>OYE WARRIOR!</b><br><br>
     Main hoon <b>Sparsh Singhal ka StudyGenie</b> — har doubt ka headshot! 🔫<br><br>
     💪 <b>Power-ups:</b><br>
-    • Streak bonus (+XP daily)<br>
-    • Critical hits (random +15 XP)<br>
     • Level up system<br>
+    • XP & Rankings<br>
     • Sound effects 🔊<br><br>
     <span class="text-[#ff8a00] text-xs">BY SPARSH SINGHAL | 10 FREE AMMO</span>
   </div>
 </div>
 `;
 
-console.log('🔥 StudyGenie Ultimate Battle loaded!');
-console.log('👤 User:', name || 'Not registered');
-console.log('💎 Plan:', isPro ? 'PRO' : 'FREE');
-console.log('🎯 Level:', stats.level);
+// Check onboard status
+checkOnboard();
 
-// Show the register button works!
-console.log('✅ Click "ENTER BATTLEFIELD" to register!');
+console.log('✅ StudyGenie ready!');
+console.log('📝 To register, fill the form and click ENTER BATTLEFIELD');
 </script>
 </body></html>
 """
