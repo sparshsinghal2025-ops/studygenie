@@ -1,6 +1,6 @@
 # ===================================================================
-# STUDYGENIE - FINAL COMPLETE FIX 🔥
-# By Sparsh Singhal - Everything Working!
+# STUDYGENIE - ULTIMATE FINAL FIX 🔥
+# By Sparsh Singhal - Everything Working Forever!
 # ===================================================================
 
 import os
@@ -61,11 +61,7 @@ RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
 FREE_ASK_LIMIT = int(os.environ.get("FREE_ASK_LIMIT", "10"))
 PRO_AMOUNT = int(os.environ.get("PRO_AMOUNT", "4900"))
-
-# ===================================================================
-# NEW: Latest Gemini Model
-# ===================================================================
-GEMINI_MODEL = "gemini-2.0-flash"  # Working model
+DEV_PASSWORD = os.environ.get("DEV_PASSWORD", "sparsh123")
 
 # ===================================================================
 # Redis Client
@@ -96,6 +92,7 @@ class Storage:
         self.total_asks = 0
         self.cache_ts = 0
         self.cache_data = []
+        self.dev_users = set()  # Users with dev mode enabled
     
     def get_redis(self):
         return redis_client.get()
@@ -246,32 +243,71 @@ class Storage:
 storage = Storage()
 
 # ===================================================================
-# AI SERVICE - WITH LATEST MODEL 🔥
+# AI SERVICE - AUTO MODEL DETECTION 🔥
 # ===================================================================
 class AIService:
     def __init__(self):
         self.client = None
-        self.model_name = GEMINI_MODEL
+        self.model_name = None
+        self.available_models = []
         
         if GENAI_AVAILABLE and GOOGLE_API_KEY:
             try:
                 genai.configure(api_key=GOOGLE_API_KEY)
-                # Try to get available models
-                self.client = genai.GenerativeModel(self.model_name)
-                log.info(f"✅ Gemini AI initialized with model: {self.model_name}")
+                
+                # Try to list available models
+                try:
+                    models = genai.list_models()
+                    self.available_models = [m.name for m in models if 'generateContent' in m.supported_generation_methods]
+                    log.info(f"📋 Available models: {self.available_models}")
+                except:
+                    pass
+                
+                # Try different models in order of preference
+                preferred_models = [
+                    "gemini-2.0-flash",
+                    "gemini-1.5-flash",
+                    "gemini-1.5-pro",
+                    "gemini-pro",
+                    "gemini-1.0-pro"
+                ]
+                
+                for model in preferred_models:
+                    try:
+                        self.client = genai.GenerativeModel(model)
+                        # Test if it works
+                        test_response = self.client.generate_content("Test")
+                        if test_response and test_response.text:
+                            self.model_name = model
+                            log.info(f"✅ Gemini AI initialized with model: {self.model_name}")
+                            break
+                    except Exception as e:
+                        log.warning(f"Model {model} failed: {e}")
+                        continue
+                
+                if not self.client:
+                    # Try any available model
+                    for model in self.available_models:
+                        try:
+                            model_name = model.split('/')[-1]
+                            self.client = genai.GenerativeModel(model_name)
+                            self.model_name = model_name
+                            log.info(f"✅ Gemini AI initialized with fallback model: {self.model_name}")
+                            break
+                        except:
+                            continue
+                    
             except Exception as e:
                 log.error(f"Gemini init failed: {e}")
-                # Fallback to a working model
-                try:
-                    self.model_name = "gemini-1.5-flash"
-                    self.client = genai.GenerativeModel(self.model_name)
-                    log.info(f"✅ Gemini AI initialized with fallback model: {self.model_name}")
-                except:
-                    self.client = None
+                self.client = None
     
-    def generate(self, question, name="Warrior", is_pro=False):
+    def generate(self, question, name="Warrior", is_pro=False, is_dev=False):
+        # Dev mode - unlimited free access
+        if is_dev:
+            return self._generate_response(question, name, is_pro=True)
+        
         if not self.client:
-            return f"""⚠️ AI Service Not Available
+            return f"""⚠️ **AI Service Not Available**
 
 Oye {name}! Google Gemini API key is not working.
 
@@ -279,8 +315,10 @@ Please check your GOOGLE_API_KEY environment variable.
 
 - BY SPARSH SINGHAL"""
         
+        return self._generate_response(question, name, is_pro)
+    
+    def _generate_response(self, question, name="Warrior", is_pro=False):
         try:
-            # Build the prompt
             prompt = f"""You are StudyGenie, an AI tutor created by Sparsh Singhal.
 User: {name}
 Question: {question}
@@ -290,11 +328,10 @@ Provide a COMPLETE, ACCURATE answer.
 - For conceptual questions: Give clear explanation
 - Use simple language with Hinglish mix
 - Add examples if helpful
-- Be encouraging
+- Be encouraging and savage (in a fun way)
 
 RESPONSE:"""
             
-            # Generate response
             response = self.client.generate_content(
                 prompt,
                 generation_config={
@@ -312,17 +349,20 @@ RESPONSE:"""
             log.error(f"AI error: {e}")
             error_msg = str(e)
             
-            # Check if it's a model error
-            if "model" in error_msg.lower() and "available" in error_msg.lower():
-                return f"""⚠️ **Model Update Required**
-
-The Gemini model needs to be updated.
-
-Please try again later or contact support.
-
-Error: {error_msg}
-
-- BY SPARSH SINGHAL"""
+            # Try fallback model
+            if "model" in error_msg.lower() and ("404" in error_msg or "not available" in error_msg):
+                try:
+                    fallback_models = ["gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro"]
+                    for model in fallback_models:
+                        try:
+                            self.client = genai.GenerativeModel(model)
+                            self.model_name = model
+                            log.info(f"🔄 Switched to fallback model: {model}")
+                            return self._generate_response(question, name, is_pro)
+                        except:
+                            continue
+                except:
+                    pass
             
             return f"""⚠️ **Error Occurred**
 
@@ -525,15 +565,16 @@ def ask():
         name = clean_name(data.get("name", "Warrior"))
         uid = str(data.get("uid", "anon"))[:64]
         phone = clean_phone(data.get("phone"))
+        is_dev = data.get("dev", False)  # Hidden dev mode flag
         
         if not question:
             return jsonify({"error": "Empty question"}), 400
         
-        # Check quota
+        # Check quota (skip if dev mode)
         plan = storage.get_plan(phone) if phone else "free"
         used = storage.get_ask_count(uid)
         
-        if plan == "free" and used >= FREE_ASK_LIMIT:
+        if not is_dev and plan == "free" and used >= FREE_ASK_LIMIT:
             return jsonify({
                 "limit_reached": True,
                 "ans": f"""🚀 AMMO KHATAM! 🔫
@@ -546,18 +587,19 @@ Click "RELOAD" button below!
 - BY SPARSH SINGHAL"""
             }), 402
         
-        # Generate REAL answer
-        response = ai_service.generate(question, name, plan == "pro")
+        # Generate REAL answer with dev mode flag
+        response = ai_service.generate(question, name, plan == "pro" or is_dev, is_dev)
         
-        # Update stats
-        storage.increment_ask(uid)
+        # Update stats (skip for dev mode)
+        if not is_dev:
+            storage.increment_ask(uid)
         
-        # Update XP
+        # Update XP (skip for dev mode)
         user = storage.get_user(phone) if phone else None
         xp_gained = 0
         level_up = False
         
-        if user:
+        if user and not is_dev:
             xp_gained = 25 if plan == "pro" else 10
             user["xp"] = user.get("xp", 0) + xp_gained
             
@@ -579,9 +621,10 @@ Click "RELOAD" button below!
         
         return jsonify({
             "ans": response,
-            "xp_gained": xp_gained,
-            "level_up": level_up,
-            "level": user.get("level", 1) if user else 1
+            "xp_gained": xp_gained if not is_dev else 0,
+            "level_up": level_up if not is_dev else False,
+            "level": user.get("level", 1) if user else 1,
+            "dev_mode": is_dev
         })
         
     except Exception as e:
@@ -671,7 +714,7 @@ def admin_force_pro():
         return jsonify({"error": "Failed"}), 500
 
 # ===================================================================
-# HTML - COMPLETE
+# HTML - WITH HIDDEN DEV MODE 🔥
 # ===================================================================
 HTML_PAGE = """<!DOCTYPE html>
 <html lang="en">
@@ -701,6 +744,7 @@ body { background: #050507; color: #fff; font-family: system-ui, sans-serif; min
 .input-glow:focus { border-color: #ff4d00 !important; box-shadow: 0 0 20px rgba(255,77,0,0.2); }
 @keyframes slideIn { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
 .bubble-ai { animation: slideIn 0.3s ease-out; }
+.dev-badge { background: #ff4d00; color: #fff; font-size: 10px; padding: 2px 8px; border-radius: 10px; display: none; }
 </style>
 </head>
 <body>
@@ -729,7 +773,7 @@ body { background: #050507; color: #fff; font-family: system-ui, sans-serif; min
 <div id="app" style="display:none;max-width:1500px;margin:0 auto;padding:16px">
   <div class="hud flex justify-between items-center sticky top-2 z-30">
     <div class="flex items-center gap-6">
-      <img src="/sparsh.jpg" class="w-24 h-24 rounded-[16px] border-4 border-[#ff4d00] object-cover cursor-pointer">
+      <img id="logo" src="/sparsh.jpg" class="w-24 h-24 rounded-[16px] border-4 border-[#ff4d00] object-cover cursor-pointer">
       <div>
         <h1 class="text-2xl font-black tracking-wider">STUDYGENIE <span class="text-[#ff4d00]">🔥</span></h1>
         <p class="text-[#ff8a00] text-sm font-bold">BY SPARSH SINGHAL</p>
@@ -742,6 +786,7 @@ body { background: #050507; color: #fff; font-family: system-ui, sans-serif; min
       </div>
     </div>
     <div class="flex items-center gap-4">
+      <div id="devBadge" class="dev-badge">🔓 DEV</div>
       <div class="text-right">
         <div class="text-xs text-zinc-500 tracking-widest">🔥 AMMO</div>
         <div class="text-3xl font-black"><span id="ammoLeft">10</span>/10</div>
@@ -812,8 +857,13 @@ let appData = {
   name: '',
   phone: '',
   isPro: false,
+  isDev: false,
   stats: { xp: 0, level: 1, wishes: 0, q1: 0, q2: 0, totalXp: 0 }
 };
+
+// Secret Dev Mode - Hidden from users
+let logoClickCount = 0;
+let logoClickTimer = null;
 
 function loadData() {
   try {
@@ -851,6 +901,48 @@ function playSound(type) {
     osc.stop(audioCtx.currentTime + 0.15);
   } catch(e) {}
 }
+
+// ============================================================
+// HIDDEN DEV MODE - Logo Click 5 Times 🔥
+// ============================================================
+document.addEventListener('DOMContentLoaded', function() {
+  const logo = document.getElementById('logo');
+  if (logo) {
+    logo.addEventListener('click', function(e) {
+      playSound('click');
+      logoClickCount++;
+      
+      // Reset after 3 seconds if not enough clicks
+      clearTimeout(logoClickTimer);
+      logoClickTimer = setTimeout(() => {
+        logoClickCount = 0;
+      }, 3000);
+      
+      if (logoClickCount >= 5) {
+        // Secret dev mode activation
+        const password = prompt('🔐 Enter Secret Code:');
+        if (password === 'sparsh123') {
+          appData.isDev = !appData.isDev;
+          saveData();
+          if (appData.isDev) {
+            document.getElementById('devBadge').style.display = 'inline-block';
+            playSound('level');
+            alert('🔓 DEV MODE ACTIVATED! Unlimited free questions!');
+          } else {
+            document.getElementById('devBadge').style.display = 'none';
+            playSound('empty');
+            alert('🔒 DEV MODE DEACTIVATED');
+          }
+          render();
+        } else if (password !== null) {
+          playSound('empty');
+          alert('⛔ ACCESS DENIED!');
+        }
+        logoClickCount = 0;
+      }
+    });
+  }
+});
 
 // ============================================================
 // REGISTRATION
@@ -931,6 +1023,9 @@ function initApp() {
   document.getElementById('userName').textContent = appData.name.toUpperCase();
   document.getElementById('myId').textContent = '🆔 ' + appData.userId;
   document.getElementById('myPhone').textContent = '📱 ' + appData.phone.slice(0,2) + '******' + appData.phone.slice(-2);
+  if (appData.isDev) {
+    document.getElementById('devBadge').style.display = 'inline-block';
+  }
   render();
   loadBoard();
   checkPlan();
@@ -939,7 +1034,8 @@ function initApp() {
 
 function render() {
   const s = appData.stats;
-  document.getElementById('ammoLeft').textContent = appData.isPro ? '∞' : (10 - s.wishes);
+  const isUnlimited = appData.isPro || appData.isDev;
+  document.getElementById('ammoLeft').textContent = isUnlimited ? '∞' : (10 - s.wishes);
   document.getElementById('lvl').textContent = s.level;
   document.getElementById('xpBar').style.width = s.xp + '%';
   document.getElementById('xpText').textContent = s.xp + '/100';
@@ -947,11 +1043,12 @@ function render() {
   document.getElementById('q1b').style.width = (s.q1/3*100) + '%';
   document.getElementById('q2').textContent = s.q2 + '/10';
   document.getElementById('q2b').style.width = (s.q2/10*100) + '%';
-  document.getElementById('planDisplay').textContent = appData.isPro ? '💎 PRO' : 'FREE';
+  document.getElementById('planDisplay').textContent = appData.isPro ? '💎 PRO' : (appData.isDev ? '🔓 DEV' : 'FREE');
+  document.getElementById('planDisplay').className = appData.isPro ? 'font-bold text-[#ff4d00]' : (appData.isDev ? 'font-bold text-[#00ff88]' : 'font-bold text-[#ff8a00]');
   
   let html = '';
   for (let i = 0; i < 10; i++) {
-    let used = i < s.wishes && !appData.isPro;
+    let used = i < s.wishes && !appData.isPro && !appData.isDev;
     html += `<div class="ammo${used ? ' used' : ''}">${used ? '💨' : '🪔'}</div>`;
   }
   document.getElementById('lamps').innerHTML = html;
@@ -1010,7 +1107,8 @@ async function ask() {
         q: q,
         name: appData.name,
         phone: appData.phone,
-        uid: appData.userId
+        uid: appData.userId,
+        dev: appData.isDev  // Hidden dev mode flag
       })
     });
     
@@ -1025,13 +1123,16 @@ async function ask() {
     }
     
     const s = appData.stats;
-    s.wishes++;
-    s.q1 = Math.min(3, s.q1 + 1);
-    s.q2 = Math.min(10, s.q2 + 1);
-    s.xp += data.xp_gained || 12;
-    s.totalXp = (s.totalXp || 0) + (data.xp_gained || 12);
+    // Only update stats if not dev mode
+    if (!appData.isDev) {
+      s.wishes++;
+      s.q1 = Math.min(3, s.q1 + 1);
+      s.q2 = Math.min(10, s.q2 + 1);
+      s.xp += data.xp_gained || 12;
+      s.totalXp = (s.totalXp || 0) + (data.xp_gained || 12);
+    }
     
-    if (data.level_up) {
+    if (data.level_up && !appData.isDev) {
       s.level = data.level;
       playSound('level');
       appendBubble('🔥 LEVEL UP - LVL ' + data.level + '!', false);
@@ -1187,5 +1288,5 @@ if __name__ == "__main__":
     app.run(host="0.0.0.0", port=port, debug=False)
 
 # ===================================================================
-# END - FINAL COMPLETE FIX 🔥
+# END - ULTIMATE FINAL FIX 🔥
 # ===================================================================
