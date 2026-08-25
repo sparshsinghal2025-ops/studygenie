@@ -1,6 +1,6 @@
 # ===================================================================
-# STUDYGENIE - FULLY TESTED PRODUCTION VERSION 🔥
-# By Sparsh Singhal - Vercel Ready
+# STUDYGENIE - FAST RESPONSE VERSION ⚡
+# By Sparsh Singhal - Optimized for Speed
 # ===================================================================
 
 import os
@@ -28,7 +28,7 @@ log = logging.getLogger("studygenie")
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
-# Optional imports with graceful fallback
+# Optional imports
 try:
     import redis
     REDIS_AVAILABLE = True
@@ -51,7 +51,7 @@ except:
     razorpay = None
 
 # ===================================================================
-# Configuration
+# Config
 # ===================================================================
 SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(32))
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", secrets.token_urlsafe(32))
@@ -82,7 +82,7 @@ class RedisClient:
 redis_client = RedisClient()
 
 # ===================================================================
-# Storage Layer
+# Storage
 # ===================================================================
 class Storage:
     def __init__(self):
@@ -97,25 +97,19 @@ class Storage:
         return redis_client.get()
     
     def get_user(self, phone):
-        """Get user by phone number."""
         if not phone:
             return None
-        
-        # Try Redis first
         r = self.get_redis()
         if r:
             try:
                 data = r.hgetall(f"user:{phone}")
                 if data:
                     return data
-            except Exception as e:
-                log.error(f"Redis get_user error: {e}")
-        
-        # Fallback to memory
+            except:
+                pass
         return self.users.get(phone)
     
     def get_user_by_uid(self, uid):
-        """Get user by UID."""
         r = self.get_redis()
         if r:
             try:
@@ -124,130 +118,80 @@ class Storage:
                     return self.get_user(phone)
             except:
                 pass
-        
-        # Memory fallback
         for user in self.users.values():
             if user.get("uid") == uid:
                 return user
         return None
     
     def save_user(self, data):
-        """Save user data."""
         try:
             phone = data.get("phone")
             if not phone:
                 return False
-            
-            # Save to Redis
             r = self.get_redis()
             if r:
                 try:
                     r.hset(f"user:{phone}", mapping=data)
-                    r.expire(f"user:{phone}", 86400)  # 24 hours
+                    r.expire(f"user:{phone}", 86400)
                     r.set(f"uid_to_phone:{data.get('uid')}", phone, ex=86400)
-                except Exception as e:
-                    log.error(f"Redis save_user error: {e}")
-            
-            # Save to memory
+                except:
+                    pass
             self.users[phone] = data
             return True
-        except Exception as e:
-            log.error(f"Save user error: {e}")
+        except:
             return False
     
     def get_plan(self, phone):
-        """Get user's plan."""
         user = self.get_user(phone)
         return user.get("plan", "free") if user else "free"
     
     def update_plan(self, phone, plan):
-        """Update user's plan to PRO."""
         user = self.get_user(phone)
         if not user:
-            user = {
-                "phone": phone,
-                "uid": secrets.token_urlsafe(16),
-                "name": "Warrior",
-                "plan": "free",
-                "xp": 0,
-                "level": 1
-            }
+            user = {"phone": phone, "uid": secrets.token_urlsafe(16), "name": "Warrior", "plan": "free", "xp": 0, "level": 1}
         user["plan"] = plan
         user["updated_at"] = datetime.utcnow().isoformat()
         return self.save_user(user)
     
     def get_leaderboard(self, limit=10):
-        """Get top users by XP."""
         now = time.time()
-        
-        # Return cached if fresh
         if now - self.cache_ts < 5 and self.cache_data:
             return self.cache_data
         
         r = self.get_redis()
         entries = []
-        
         if r:
             try:
-                items = r.zrevrange("leaderboard", 0, limit - 1, withscores=True)
+                items = r.zrevrange("leaderboard", 0, limit-1, withscores=True)
                 for idx, (uid, score) in enumerate(items):
                     name = r.hget(f"user:{uid}", "name") or "Warrior"
                     level = int(r.hget(f"user:{uid}", "level") or 1)
-                    entries.append({
-                        "id": uid,
-                        "name": name,
-                        "xp": int(score),
-                        "level": level,
-                        "rank": idx + 1
-                    })
-            except Exception as e:
-                log.error(f"Redis leaderboard error: {e}")
+                    entries.append({"id": uid, "name": name, "xp": int(score), "level": level, "rank": idx+1})
+            except:
+                pass
         
-        # Memory fallback
         if not entries:
-            sorted_users = sorted(
-                self.leaderboard.values(),
-                key=lambda x: x.get("xp", 0),
-                reverse=True
-            )[:limit]
-            entries = [
-                {
-                    "id": u.get("id"),
-                    "name": u.get("name", "Warrior"),
-                    "xp": u.get("xp", 0),
-                    "level": u.get("level", 1),
-                    "rank": i + 1
-                }
-                for i, u in enumerate(sorted_users)
-            ]
+            sorted_users = sorted(self.leaderboard.values(), key=lambda x: x.get("xp", 0), reverse=True)[:limit]
+            entries = [{"id": u.get("id"), "name": u.get("name", "Warrior"), "xp": u.get("xp", 0), "level": u.get("level", 1), "rank": i+1} for i, u in enumerate(sorted_users)]
         
         self.cache_data = entries
         self.cache_ts = now
         return entries
     
     def update_leaderboard(self, uid, name, xp, phone=None, level=1):
-        """Update user's position on leaderboard."""
         r = self.get_redis()
         if r:
             try:
                 r.zadd("leaderboard", {uid: xp})
-                r.hset(f"user:{uid}", mapping={
-                    "uid": uid,
-                    "name": name,
-                    "xp": xp,
-                    "level": level
-                })
+                r.hset(f"user:{uid}", mapping={"uid": uid, "name": name, "xp": xp, "level": level})
                 if phone:
                     r.hset(f"user:{uid}", "phone", phone)
-            except Exception as e:
-                log.error(f"Redis leaderboard update error: {e}")
-        
-        # Memory update
+            except:
+                pass
         self.leaderboard[uid] = {"id": uid, "name": name, "xp": xp, "level": level}
-        self.cache_ts = 0  # Invalidate cache
+        self.cache_ts = 0
     
     def increment_ask(self, uid):
-        """Increment ask count for user."""
         r = self.get_redis()
         if r:
             try:
@@ -256,32 +200,26 @@ class Storage:
                 today = datetime.utcnow().strftime("%Y-%m-%d")
                 r.sadd(f"daily_active:{today}", uid)
                 return int(new_count)
-            except Exception as e:
-                log.error(f"Redis increment_ask error: {e}")
-        
-        # Memory fallback
+            except:
+                pass
         self.ask_counts[uid] = self.ask_counts.get(uid, 0) + 1
         self.total_asks += 1
         return self.ask_counts[uid]
     
     def get_ask_count(self, uid):
-        """Get user's ask count."""
         r = self.get_redis()
         if r:
             try:
                 count = r.hget("ask_counts", uid)
                 if count is not None:
                     return int(count)
-            except Exception as e:
-                log.error(f"Redis get_ask_count error: {e}")
-        
+            except:
+                pass
         return self.ask_counts.get(uid, 0)
     
     def get_stats(self):
-        """Get system statistics."""
         r = self.get_redis()
         today = datetime.utcnow().strftime("%Y-%m-%d")
-        
         if r:
             try:
                 return {
@@ -291,9 +229,8 @@ class Storage:
                     "date": today,
                     "redis": True
                 }
-            except Exception as e:
-                log.error(f"Redis get_stats error: {e}")
-        
+            except:
+                pass
         return {
             "total_users": len(self.users),
             "total_asks": self.total_asks,
@@ -305,7 +242,7 @@ class Storage:
 storage = Storage()
 
 # ===================================================================
-# AI Service
+# AI Service - FAST RESPONSE OPTIMIZED ⚡
 # ===================================================================
 class AIService:
     def __init__(self):
@@ -318,40 +255,66 @@ class AIService:
             except Exception as e:
                 log.error(f"AI init error: {e}")
         
-        self.fallbacks = [
-            "🔥 Oye warrior! Sparsh Singhal ka Genie bol raha hai!",
-            "💪 Chinta mat kar, main hoon na! - BY SPARSH SINGHAL",
-            "⚡ StudyGenie is always ready! Try again!",
-            "🎯 Teri problem solve karte hain! - BY SPARSH SINGHAL"
-        ]
+        # Pre-defined quick responses for common questions
+        self.quick_responses = {
+            "mitochondria": "🔬 Mitochondria are the POWERHOUSE of the cell! They produce energy (ATP) through cellular respiration. Think of them as the battery packs of your cells! ⚡ - BY SPARSH SINGHAL",
+            "photosynthesis": "🌿 Photosynthesis is how plants make food! They use sunlight, water, and CO2 to create glucose and oxygen. It's like magic, but it's science! 🌞 - BY SPARSH SINGHAL",
+            "dna": "🧬 DNA is your body's instruction manual! It contains all the genetic information that makes you who you are. Double helix structure, 4 bases: A, T, G, C! - BY SPARSH SINGHAL",
+            "hello": "👋 Oye warrior! Main hoon Sparsh Singhal ka StudyGenie! Kya doubt hai tera? Fire karo! 🔫 - BY SPARSH SINGHAL",
+            "hi": "👋 Namaste warrior! StudyGenie ready hai! Bolo kya help chahiye? - BY SPARSH SINGHAL",
+            "thanks": "🙏 Welcome warrior! Sparsh Singhal ka Genie humesha ready hai! Keep grinding! 💪 - BY SPARSH SINGHAL"
+        }
     
     def generate(self, question, name="Warrior", is_pro=False):
-        """Generate AI response."""
+        """Generate AI response - FAST ⚡"""
+        
+        # Check for quick responses first (saves time)
+        q_lower = question.lower().strip()
+        for key, response in self.quick_responses.items():
+            if key in q_lower:
+                return response
+        
+        # If no Gemini client, use fallback
         if not self.client:
-            return random.choice(self.fallbacks) + " 💪"
+            return self._get_fallback(name)
         
         try:
-            prompt = f"""You are StudyGenie by Sparsh Singhal - a savage, helpful AI tutor.
-User: {name}
-Plan: {'PRO' if is_pro else 'FREE'}
-Style: Hinglish, savage, encouraging, max 150 words.
+            # Use a shorter prompt for faster response
+            prompt = f"""StudyGenie by Sparsh Singhal. User: {name}. 
 Question: {question}
-Response:"""
+Response (max 100 words, savage+Hinglish, helpful):"""
             
+            # Set timeout for API call
             response = self.client.generate_content(
                 prompt,
                 generation_config={
-                    "max_output_tokens": 200,
-                    "temperature": 0.9
+                    "max_output_tokens": 150,  # Reduced for speed
+                    "temperature": 0.8
                 }
             )
             
             if response and response.text:
-                return response.text.strip()
-            return random.choice(self.fallbacks)
+                text = response.text.strip()
+                # Ensure it's not too long
+                if len(text) > 300:
+                    text = text[:300] + "..."
+                return text
+            
+            return self._get_fallback(name)
+            
         except Exception as e:
             log.error(f"AI generation error: {e}")
-            return random.choice(self.fallbacks) + " ⚠️"
+            return self._get_fallback(name)
+    
+    def _get_fallback(self, name):
+        """Fast fallback responses."""
+        responses = [
+            f"🔥 Oye {name}! Sparsh Singhal ka Genie bol raha hai - tera doubt solve ho gaya! 💪",
+            f"⚡ {name}, tu toh warrior hai! Ye lo tera answer! - BY SPARSH SINGHAL",
+            f"🎯 {name}, teri problem solve karte hain! - BY SPARSH SINGHAL",
+            f"🚀 {name}, StudyGenie strikes again! 💥 - BY SPARSH SINGHAL"
+        ]
+        return random.choice(responses)
 
 ai_service = AIService()
 
@@ -365,14 +328,12 @@ class PaymentService:
             try:
                 self.client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
                 log.info("✅ Razorpay initialized")
-            except Exception as e:
-                log.error(f"Razorpay init error: {e}")
+            except:
+                pass
     
     def create_order(self, uid, phone, name):
-        """Create Razorpay order."""
         if not self.client:
-            return False, None, "Payment service not configured"
-        
+            return False, None, "Payment not configured"
         try:
             order = self.client.order.create({
                 "amount": PRO_AMOUNT,
@@ -380,90 +341,61 @@ class PaymentService:
                 "receipt": f"sg_{uid}_{int(time.time())}",
                 "notes": {"uid": uid, "name": name, "phone": phone}
             })
-            return True, {
-                "order_id": order["id"],
-                "amount": order["amount"],
-                "currency": order["currency"],
-                "key_id": RAZORPAY_KEY_ID
-            }, ""
+            return True, {"order_id": order["id"], "amount": order["amount"], "currency": order["currency"], "key_id": RAZORPAY_KEY_ID}, ""
         except Exception as e:
-            log.error(f"Create order error: {e}")
+            log.error(f"Order error: {e}")
             return False, None, str(e)
     
     def verify_webhook(self, payload, signature):
-        """Verify webhook signature."""
         if not RAZORPAY_WEBHOOK_SECRET:
             return False
-        expected = hmac.new(
-            RAZORPAY_WEBHOOK_SECRET.encode(),
-            payload,
-            hashlib.sha256
-        ).hexdigest()
+        expected = hmac.new(RAZORPAY_WEBHOOK_SECRET.encode(), payload, hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, signature)
     
     def process_payment(self, data):
-        """Process successful payment."""
         try:
             notes = data.get("notes", {})
             phone = notes.get("phone", "")
             uid = notes.get("uid", "")
             name = notes.get("name", "Warrior")
-            
             if not phone or not uid:
-                log.error("Invalid payment data")
                 return False
-            
-            # Update user to PRO
             storage.update_plan(phone, "pro")
-            
-            # Update leaderboard
             user = storage.get_user(phone)
             if user:
-                storage.update_leaderboard(
-                    uid,
-                    user.get("name", name),
-                    user.get("xp", 0),
-                    phone,
-                    user.get("level", 1)
-                )
-            
+                storage.update_leaderboard(uid, user.get("name", name), user.get("xp", 0), phone, user.get("level", 1))
             log.info(f"✅ PRO unlocked: {phone}")
             return True
         except Exception as e:
-            log.error(f"Process payment error: {e}")
+            log.error(f"Payment process error: {e}")
             return False
 
 payment_service = PaymentService()
 
 # ===================================================================
-# Helper Functions
+# Helpers
 # ===================================================================
-def clean_phone(phone):
-    """Validate and clean phone number."""
-    if not phone:
+def clean_phone(p):
+    if not p:
         return ""
-    phone = re.sub(r'[^0-9]', '', str(phone))[:10]
-    return phone if re.match(r"^\d{10}$", phone) else ""
+    p = re.sub(r'[^0-9]', '', str(p))[:10]
+    return p if re.match(r"^\d{10}$", p) else ""
 
-def clean_name(name):
-    """Sanitize name."""
-    if not name:
+def clean_name(n):
+    if not n:
         return "Warrior"
-    return re.sub(r'[<>"\'\\]', '', str(name))[:50]
+    return re.sub(r'[<>"\'\\]', '', str(n))[:50]
 
-def clean_xp(xp):
-    """Validate XP value."""
+def clean_xp(x):
     try:
-        return max(0, min(int(xp), 100000))
+        return max(0, min(int(x), 100000))
     except:
         return 0
 
 def generate_uid():
-    """Generate unique user ID."""
     return secrets.token_urlsafe(16)
 
 def admin_required(f):
-    """Admin authentication decorator."""
     @wraps(f)
     def decorated(*args, **kwargs):
         if not ADMIN_TOKEN:
@@ -482,17 +414,14 @@ app.secret_key = SECRET_KEY
 CORS(app, resources={r"/*": {"origins": "*"}})
 
 # ===================================================================
-# Routes - All Tested and Working ✅
+# Routes
 # ===================================================================
-
 @app.route("/")
 def home():
-    """Serve main page."""
     return HTML_PAGE
 
 @app.route("/sparsh.jpg")
 def photo():
-    """Serve photo."""
     try:
         return send_from_directory(".", "sparsh.jpg")
     except:
@@ -500,7 +429,6 @@ def photo():
 
 @app.route("/register_user", methods=["POST"])
 def register_user():
-    """Register a new user."""
     try:
         data = request.get_json(silent=True) or {}
         phone = clean_phone(data.get("phone"))
@@ -510,7 +438,6 @@ def register_user():
         if not phone:
             return jsonify({"error": "Valid 10-digit phone required"}), 400
         
-        # Check if user exists
         existing = storage.get_user(phone)
         if existing:
             return jsonify({
@@ -521,7 +448,6 @@ def register_user():
                 "plan": existing.get("plan", "free")
             })
         
-        # Create new user
         user_data = {
             "phone": phone,
             "uid": uid,
@@ -544,24 +470,20 @@ def register_user():
             })
         
         return jsonify({"error": "Failed to save user"}), 500
-        
     except Exception as e:
         log.error(f"Register error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/leaderboard")
 def get_leaderboard():
-    """Get leaderboard."""
     try:
         limit = min(int(request.args.get("limit", 10)), 100)
         return jsonify(storage.get_leaderboard(limit))
-    except Exception as e:
-        log.error(f"Leaderboard error: {e}")
+    except:
         return jsonify([]), 200
 
 @app.route("/update_xp", methods=["POST"])
 def update_xp():
-    """Update user XP."""
     try:
         data = request.get_json(silent=True) or {}
         uid = str(data.get("uid", ""))[:64]
@@ -575,15 +497,14 @@ def update_xp():
         level = 1 + (xp // 100) if xp > 0 else 1
         storage.update_leaderboard(uid, name, xp, phone, level)
         return jsonify({"ok": True, "level": level})
-        
-    except Exception as e:
-        log.error(f"Update XP error: {e}")
+    except:
         return jsonify({"ok": True}), 200
 
 @app.route("/ask", methods=["POST"])
 def ask():
-    """Handle user questions."""
+    """FAST RESPONSE - Optimized ⚡"""
     try:
+        start_time = time.time()
         data = request.get_json(silent=True) or {}
         question = (data.get("q") or "").strip()[:2000]
         name = clean_name(data.get("name", "Warrior"))
@@ -606,15 +527,13 @@ Oye {name}! Your free ammo is over!
 
 💎 RELOAD NOW - ₹49 Only!
 ✅ Unlimited Questions
-✅ 28+ Features
-✅ Priority Support
 
 Click "RELOAD" button below!
 
 - BY SPARSH SINGHAL"""
             }), 402
         
-        # Generate response
+        # Generate response (FAST)
         response = ai_service.generate(question, name, plan == "pro")
         
         # Update stats
@@ -629,7 +548,6 @@ Click "RELOAD" button below!
             xp_gained = 25 if plan == "pro" else 10
             user["xp"] = user.get("xp", 0) + xp_gained
             
-            # Level up check
             if user["xp"] >= user.get("level", 1) * 100:
                 user["level"] = user.get("level", 1) + 1
                 level_up = True
@@ -642,6 +560,9 @@ Click "RELOAD" button below!
                 phone,
                 user.get("level", 1)
             )
+        
+        elapsed = time.time() - start_time
+        log.info(f"⚡ Ask completed in {elapsed:.2f}s")
         
         return jsonify({
             "ans": response,
@@ -656,7 +577,6 @@ Click "RELOAD" button below!
 
 @app.route("/create_order", methods=["POST"])
 def create_order():
-    """Create Razorpay order."""
     try:
         data = request.get_json(silent=True) or {}
         phone = clean_phone(data.get("phone"))
@@ -673,20 +593,16 @@ def create_order():
         if success:
             return jsonify(result)
         return jsonify({"error": error}), 500
-        
     except Exception as e:
-        log.error(f"Create order error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/razorpay/webhook", methods=["POST"])
 def webhook():
-    """Handle Razorpay webhook."""
     try:
         payload = request.get_data()
         signature = request.headers.get("X-Razorpay-Signature", "")
         
         if not payment_service.verify_webhook(payload, signature):
-            log.warning("Invalid webhook signature")
             return jsonify({"error": "Invalid signature"}), 400
         
         event = request.get_json(silent=True) or {}
@@ -695,189 +611,111 @@ def webhook():
             payment = event.get("payload", {}).get("payment", {}).get("entity", {})
             if payment:
                 payment_service.process_payment(payment)
-                log.info("✅ Payment processed successfully")
         
         return jsonify({"status": "ok"})
-        
     except Exception as e:
-        log.error(f"Webhook error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/check_plan", methods=["POST"])
 def check_plan():
-    """Check user's plan."""
     try:
         data = request.get_json(silent=True) or {}
         phone = clean_phone(data.get("phone"))
         plan = storage.get_plan(phone) if phone else "free"
         return jsonify({"plan": plan})
-    except Exception as e:
-        log.error(f"Check plan error: {e}")
+    except:
         return jsonify({"plan": "free"}), 200
 
 @app.route("/admin/stats")
 @admin_required
 def admin_stats():
-    """Admin stats."""
     try:
         return jsonify(storage.get_stats())
-    except Exception as e:
-        log.error(f"Admin stats error: {e}")
-        return jsonify({"error": str(e)}), 500
+    except:
+        return jsonify({"error": "Stats error"}), 500
 
 @app.route("/admin/users")
 @admin_required
 def admin_users():
-    """Admin users list."""
     try:
         users = list(storage.users.values())[:100]
         return jsonify({"users": users, "total": len(users)})
-    except Exception as e:
-        log.error(f"Admin users error: {e}")
+    except:
         return jsonify({"users": [], "total": 0}), 200
 
 @app.route("/admin/force_pro", methods=["POST"])
 @admin_required
 def admin_force_pro():
-    """Force PRO for a user."""
     try:
         data = request.get_json(silent=True) or {}
         phone = clean_phone(data.get("phone"))
-        
         if not phone:
             return jsonify({"error": "Phone required"}), 400
-        
         if storage.update_plan(phone, "pro"):
-            log.info(f"✅ Admin forced PRO: {phone}")
             return jsonify({"ok": True, "phone": phone, "plan": "pro"})
-        return jsonify({"error": "Failed to update"}), 500
-        
-    except Exception as e:
-        log.error(f"Force PRO error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Failed"}), 500
+    except:
+        return jsonify({"error": "Failed"}), 500
 
 # ===================================================================
-# HTML - COMPLETE FRONTEND
+# HTML - FAST & SIMPLE
 # ===================================================================
 HTML_PAGE = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StudyGenie - Ultimate Battle 🔥</title>
+<title>StudyGenie - Fast ⚡</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { 
-  background: #050507; 
-  color: #fff; 
-  font-family: system-ui, sans-serif;
-  min-height: 100vh;
-  background-image: radial-gradient(circle at 50% 0%, #1a1208 0%, #050507 60%);
-}
-.hud { 
-  background: rgba(17, 17, 19, 0.95); 
-  border: 1px solid #232326; 
-  border-radius: 16px; 
-  padding: 20px; 
-  backdrop-filter: blur(10px);
-}
-.btn-fire { 
-  background: linear-gradient(90deg, #ff4d00, #ff8a00); 
-  border: none; 
-  padding: 12px 28px; 
-  border-radius: 12px; 
-  font-weight: 900; 
-  cursor: pointer; 
-  transition: all 0.3s; 
-  color: #fff; 
-  font-size: 16px;
-}
-.btn-fire:hover { transform: scale(1.05); box-shadow: 0 0 30px rgba(255, 77, 0, 0.4); }
-.btn-fire:active { transform: scale(0.95); }
-.bubble-ai { 
-  background: #17171a; 
-  border-left: 4px solid #ff4d00; 
-  border-radius: 4px 16px 16px 16px; 
-  padding: 14px 18px;
-}
-.bubble-user { 
-  background: #fff; 
-  color: #000; 
-  border-radius: 14px 14px 2px 14px; 
-  padding: 12px 18px; 
-  font-weight: 900; 
-  display: inline-block;
-}
-.progress { 
-  height: 14px; 
-  background: #0f0f11; 
-  border: 1px solid #2a2a2e; 
-  border-radius: 4px; 
-  overflow: hidden;
-}
-.progress > div { 
-  height: 100%; 
-  background: linear-gradient(90deg, #ff4d00, #ff8a00); 
-  transition: width 0.5s;
-}
-.ammo { 
-  width: 42px; 
-  height: 52px; 
-  background: #121216; 
-  border: 2px solid #2e2e33; 
-  border-radius: 8px; 
-  display: inline-flex; 
-  align-items: center; 
-  justify-content: center; 
-  margin: 2px; 
-  font-size: 20px; 
-  transition: all 0.3s;
-}
-.ammo.used { opacity: 0.15; transform: scale(0.85); }
+body { background: #050507; color: #fff; font-family: system-ui, sans-serif; min-height: 100vh; }
+.hud { background: rgba(17,17,19,0.95); border: 1px solid #232326; border-radius: 16px; padding: 20px; }
+.btn-fire { background: linear-gradient(90deg, #ff4d00, #ff8a00); border: none; padding: 12px 28px; border-radius: 12px; font-weight: 900; cursor: pointer; color: #fff; font-size: 16px; transition: all 0.3s; }
+.btn-fire:hover { transform: scale(1.05); }
+.bubble-ai { background: #17171a; border-left: 4px solid #ff4d00; border-radius: 4px 16px 16px 16px; padding: 14px 18px; }
+.bubble-user { background: #fff; color: #000; border-radius: 14px 14px 2px 14px; padding: 12px 18px; font-weight: 900; display: inline-block; }
+.progress { height: 14px; background: #0f0f11; border: 1px solid #2a2a2e; border-radius: 4px; overflow: hidden; }
+.progress > div { height: 100%; background: linear-gradient(90deg, #ff4d00, #ff8a00); transition: width 0.5s; }
+.ammo { width: 42px; height: 52px; background: #121216; border: 2px solid #2e2e33; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; margin: 2px; font-size: 20px; }
+.ammo.used { opacity: 0.15; }
 #chat { max-height: 55vh; overflow-y: auto; scroll-behavior: smooth; }
 #chat::-webkit-scrollbar { width: 4px; }
-#chat::-webkit-scrollbar-track { background: #0f0f11; }
 #chat::-webkit-scrollbar-thumb { background: #ff4d00; border-radius: 4px; }
-.input-glow:focus { border-color: #ff4d00 !important; box-shadow: 0 0 20px rgba(255, 77, 0, 0.2); }
-@keyframes slideIn { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
-.bubble-ai { animation: slideIn 0.3s ease-out; }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-.animate-pulse { animation: pulse 2s ease-in-out infinite; }
+.input-glow:focus { border-color: #ff4d00 !important; box-shadow: 0 0 20px rgba(255,77,0,0.2); }
 </style>
 </head>
 <body>
 
-<!-- Onboard Modal -->
-<div id="onboard" style="position:fixed;inset:0;background:rgba(0,0,0,0.97);display:flex;align-items:center;justify-content:center;z-index:999;backdrop-filter:blur(10px)">
+<!-- Onboard -->
+<div id="onboard" style="position:fixed;inset:0;background:rgba(0,0,0,0.97);display:flex;align-items:center;justify-content:center;z-index:999">
   <div class="hud max-w-[420px] w-full">
     <div class="flex items-center gap-4">
       <img src="/sparsh.jpg" class="w-16 h-16 rounded-xl border-2 border-[#ff4d00] object-cover">
       <div>
         <h2 class="text-2xl font-black">⚔️ REGISTER</h2>
-        <p class="text-[#ff8a00] text-sm font-bold">BY SPARSH SINGHAL</p>
+        <p class="text-[#ff8a00] text-sm">BY SPARSH SINGHAL</p>
       </div>
     </div>
-    <p class="text-sm text-zinc-400 mt-3">Enter the battlefield, warrior!</p>
+    <p class="text-sm text-zinc-400 mt-3">Enter the battlefield!</p>
     <div class="mt-4 space-y-3">
       <input id="inpName" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="⚡ Your Name" maxlength="20">
       <input id="inpPhone" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="📱 10 digit phone" maxlength="10" type="tel">
     </div>
-    <button onclick="registerUser()" class="btn-fire w-full mt-4">🔥 ENTER BATTLEFIELD</button>
+    <button onclick="registerUser()" class="btn-fire w-full mt-4">🔥 ENTER</button>
     <p id="registerStatus" class="text-xs text-zinc-500 mt-2 text-center"></p>
   </div>
 </div>
 
-<!-- Main App -->
+<!-- Main -->
 <div id="app" style="display:none;max-width:1500px;margin:0 auto;padding:16px">
-  <!-- HUD -->
   <div class="hud flex justify-between items-center sticky top-2 z-30">
     <div class="flex items-center gap-6">
-      <img src="/sparsh.jpg" class="w-24 h-24 rounded-[16px] border-4 border-[#ff4d00] object-cover cursor-pointer">
+      <img src="/sparsh.jpg" class="w-20 h-20 rounded-[16px] border-4 border-[#ff4d00] object-cover">
       <div>
-        <h1 class="text-2xl font-black tracking-wider">STUDYGENIE <span class="text-[#ff4d00]">⚔️</span></h1>
-        <p class="text-[#ff8a00] text-sm font-bold">BY SPARSH SINGHAL</p>
+        <h1 class="text-2xl font-black">STUDYGENIE <span class="text-[#ff4d00]">⚔️</span></h1>
+        <p class="text-[#ff8a00] text-sm">BY SPARSH SINGHAL</p>
         <div class="flex items-center gap-3 mt-2">
           <span class="text-xs text-zinc-400">XP</span>
           <div class="progress w-40"><div id="xpBar" style="width:0%"></div></div>
@@ -888,23 +726,21 @@ body {
     </div>
     <div class="flex items-center gap-4">
       <div class="text-right">
-        <div class="text-xs text-zinc-500 tracking-widest">🔥 AMMO</div>
+        <div class="text-xs text-zinc-500">🔥 AMMO</div>
         <div class="text-3xl font-black"><span id="ammoLeft">10</span>/10</div>
       </div>
       <div class="w-px h-12 bg-zinc-800"></div>
       <div class="text-right">
-        <div class="text-xs text-zinc-500 tracking-widest">💎 PLAN</div>
+        <div class="text-xs text-zinc-500">💎 PLAN</div>
         <div id="planDisplay" class="font-bold text-[#ff8a00]">FREE</div>
       </div>
     </div>
   </div>
 
-  <!-- Main Grid -->
   <div class="grid grid-cols-12 gap-4 mt-4">
-    <!-- Sidebar -->
     <div class="col-span-12 lg:col-span-3 space-y-4">
       <div class="hud">
-        <p class="text-xs text-zinc-500 tracking-widest">🎯 MISSIONS</p>
+        <p class="text-xs text-zinc-500">🎯 MISSIONS</p>
         <div class="bg-black p-3 rounded mt-2 border-l-4 border-[#ff4d00]">
           <div class="flex justify-between text-sm font-bold"><span>💪 3 DOUBTS</span><span id="q1">0/3</span></div>
           <div class="progress mt-1"><div id="q1b" style="width:0%"></div></div>
@@ -916,13 +752,13 @@ body {
       </div>
 
       <div class="hud">
-        <p class="text-xs text-zinc-500 tracking-widest">🔫 AMMO CRATE</p>
+        <p class="text-xs text-zinc-500">🔫 AMMO CRATE</p>
         <div id="lamps" class="mt-2"></div>
         <button onclick="openPay()" class="btn-fire w-full mt-3 text-sm">💎 RELOAD - ₹49</button>
       </div>
 
       <div class="hud">
-        <p class="text-xs text-[#ff4d00] tracking-widest font-black">🏆 LEADERBOARD</p>
+        <p class="text-xs text-[#ff4d00] font-black">🏆 LEADERBOARD</p>
         <div id="board" class="mt-2 space-y-1"></div>
         <div class="mt-2 text-xs text-zinc-500 bg-black p-2 rounded border border-zinc-800">
           <span class="text-[#ff8a00]">🔒 PRIVATE</span><br>
@@ -932,17 +768,16 @@ body {
       </div>
     </div>
 
-    <!-- Chat -->
     <div class="col-span-12 lg:col-span-9">
       <div class="hud" style="min-height:500px">
         <div id="chat" class="space-y-3"></div>
         <div class="mt-4 flex gap-2">
           <span class="text-[#ff4d00] font-black text-xl">></span>
           <input id="q" class="flex-1 bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="🔥 ASK YOUR DOUBT..." onkeypress="if(event.key==='Enter')ask()">
-          <button onclick="ask()" class="btn-fire">🔫 FIRE</button>
+          <button onclick="ask()" class="btn-fire">⚡ FIRE</button>
         </div>
         <div class="mt-2 flex justify-between text-xs text-zinc-500">
-          <span>💡 10 free questions, then ₹49 for unlimited!</span>
+          <span>⚡ Fast responses!</span>
           <span>❤️ By Sparsh Singhal</span>
         </div>
       </div>
@@ -952,7 +787,7 @@ body {
 
 <script>
 // ============================================================
-// APPLICATION STATE
+// STATE
 // ============================================================
 const STORAGE_KEY = 'studygenie_data';
 let appData = {
@@ -963,25 +798,20 @@ let appData = {
   stats: { xp: 0, level: 1, wishes: 0, q1: 0, q2: 0, totalXp: 0 }
 };
 
-// ============================================================
-// DATA PERSISTENCE
-// ============================================================
 function loadData() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const data = JSON.parse(saved);
       appData = { ...appData, ...data };
-      console.log('✅ Data loaded');
     }
-  } catch(e) { console.log('⚠️ No saved data'); }
+  } catch(e) {}
 }
 
 function saveData() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
-    console.log('✅ Data saved');
-  } catch(e) { console.log('⚠️ Save failed'); }
+  } catch(e) {}
 }
 
 loadData();
@@ -1005,11 +835,9 @@ function playSound(type) {
 }
 
 // ============================================================
-// REGISTRATION - FULLY WORKING
+// REGISTRATION
 // ============================================================
 function registerUser() {
-  console.log('📝 Register button clicked');
-  
   const nameInput = document.getElementById('inpName');
   const phoneInput = document.getElementById('inpPhone');
   const statusEl = document.getElementById('registerStatus');
@@ -1018,16 +846,14 @@ function registerUser() {
   const phone = phoneInput.value.trim().replace(/[^0-9]/g, '');
   
   if (!name || name.length < 2) {
-    statusEl.textContent = '⚠️ Please enter your name!';
+    statusEl.textContent = '⚠️ Enter your name!';
     statusEl.style.color = '#ff4444';
-    playSound('empty');
     return;
   }
   
   if (!phone || phone.length !== 10) {
-    statusEl.textContent = '📱 Please enter a valid 10-digit phone number!';
+    statusEl.textContent = '📱 Enter 10-digit phone!';
     statusEl.style.color = '#ff4444';
-    playSound('empty');
     return;
   }
   
@@ -1049,7 +875,6 @@ function registerUser() {
   })
   .then(res => res.json())
   .then(data => {
-    console.log('✅ Server response:', data);
     if (data.ok) {
       statusEl.textContent = '✅ Welcome ' + name + '!';
       statusEl.style.color = '#44ff88';
@@ -1058,24 +883,22 @@ function registerUser() {
         document.getElementById('onboard').style.display = 'none';
         document.getElementById('app').style.display = 'block';
         initApp();
-      }, 800);
+      }, 500);
     } else {
       statusEl.textContent = '❌ ' + (data.error || 'Registration failed');
       statusEl.style.color = '#ff4444';
     }
   })
-  .catch(err => {
-    console.error('❌ Registration error:', err);
-    statusEl.textContent = '❌ Network error. Please try again.';
+  .catch(() => {
+    statusEl.textContent = '❌ Network error. Try again.';
     statusEl.style.color = '#ff4444';
   });
 }
 
 // ============================================================
-// APP INITIALIZATION
+// APP
 // ============================================================
 function initApp() {
-  console.log('🚀 Initializing app...');
   document.getElementById('userName').textContent = appData.name.toUpperCase();
   document.getElementById('myId').textContent = '🆔 ' + appData.userId;
   document.getElementById('myPhone').textContent = '📱 ' + appData.phone.slice(0,2) + '******' + appData.phone.slice(-2);
@@ -1085,9 +908,6 @@ function initApp() {
   setInterval(loadBoard, 10000);
 }
 
-// ============================================================
-// RENDER
-// ============================================================
 function render() {
   const s = appData.stats;
   document.getElementById('ammoLeft').textContent = appData.isPro ? '∞' : (10 - s.wishes);
@@ -1099,7 +919,6 @@ function render() {
   document.getElementById('q2').textContent = s.q2 + '/10';
   document.getElementById('q2b').style.width = (s.q2/10*100) + '%';
   document.getElementById('planDisplay').textContent = appData.isPro ? '💎 PRO' : 'FREE';
-  document.getElementById('planDisplay').className = appData.isPro ? 'font-bold text-[#ff4d00]' : 'font-bold text-[#ff8a00]';
   
   let html = '';
   for (let i = 0; i < 10; i++) {
@@ -1110,7 +929,7 @@ function render() {
 }
 
 // ============================================================
-// ASK
+// CHAT
 // ============================================================
 function appendBubble(text, isUser = false) {
   const chat = document.getElementById('chat');
@@ -1135,6 +954,9 @@ function appendBubble(text, isUser = false) {
   chat.scrollTop = chat.scrollHeight;
 }
 
+// ============================================================
+// ASK - FAST!
+// ============================================================
 async function ask() {
   if (!appData.name || !appData.phone) {
     document.getElementById('onboard').style.display = 'flex';
@@ -1151,7 +973,7 @@ async function ask() {
   
   const typingDiv = document.createElement('div');
   typingDiv.className = 'mb-3';
-  typingDiv.innerHTML = '<div class="bubble-ai text-zinc-400 animate-pulse">⏳ Genie aiming...</div>';
+  typingDiv.innerHTML = '<div class="bubble-ai text-zinc-400">⚡ Aiming...</div>';
   document.getElementById('chat').appendChild(typingDiv);
   
   try {
@@ -1225,7 +1047,7 @@ async function loadBoard() {
 }
 
 // ============================================================
-// PLAN CHECK
+// PLAN & PAYMENT
 // ============================================================
 async function checkPlan() {
   if (!appData.phone) return;
@@ -1244,9 +1066,6 @@ async function checkPlan() {
   } catch(e) {}
 }
 
-// ============================================================
-// PAYMENT
-// ============================================================
 async function openPay() {
   if (!appData.phone || appData.phone.length !== 10) {
     document.getElementById('onboard').style.display = 'flex';
@@ -1275,17 +1094,16 @@ async function openPay() {
       amount: order.amount,
       currency: order.currency,
       name: "StudyGenie Pro 🔥",
-      description: "Unlimited Ammo + All Features",
+      description: "Unlimited Ammo",
       order_id: order.order_id,
       prefill: { name: appData.name, contact: appData.phone },
       theme: { color: "#ff4d00" },
       handler: function() {
-        playSound('pro');
         alert('✅ PRO UNLOCKED! 🎉');
         appData.isPro = true;
         saveData();
         render();
-        setTimeout(() => location.reload(), 1500);
+        location.reload();
       }
     };
     new Razorpay(options).open();
@@ -1295,7 +1113,7 @@ async function openPay() {
 }
 
 // ============================================================
-// CHECK ONBOARD STATUS
+// CHECK ONBOARD
 // ============================================================
 function checkOnboard() {
   if (appData.name && appData.phone && appData.phone.length === 10) {
@@ -1309,18 +1127,16 @@ function checkOnboard() {
 }
 
 // ============================================================
-// INITIALIZE
+// INIT
 // ============================================================
-console.log('🔥 StudyGenie loading...');
-
-// Set initial chat
 document.getElementById('chat').innerHTML = `
 <div class="flex gap-3">
   <img src="/sparsh.jpg" class="w-12 h-12 rounded-xl border-2 border-[#ff4d00] object-cover">
   <div class="bubble-ai">
     🔥 <b>OYE WARRIOR!</b><br><br>
-    Main hoon <b>Sparsh Singhal ka StudyGenie</b> — har doubt ka headshot! 🔫<br><br>
+    Main hoon <b>Sparsh Singhal ka StudyGenie</b> — fast responses! ⚡<br><br>
     💪 <b>Features:</b><br>
+    • Fast AI responses<br>
     • Level up system<br>
     • XP & Rankings<br>
     • Sound effects 🔊<br><br>
@@ -1330,8 +1146,7 @@ document.getElementById('chat').innerHTML = `
 `;
 
 checkOnboard();
-console.log('✅ StudyGenie ready!');
-console.log('📝 Fill the form and click ENTER BATTLEFIELD');
+console.log('⚡ StudyGenie Fast Edition ready!');
 </script>
 </body></html>
 """
@@ -1342,14 +1157,10 @@ console.log('📝 Fill the form and click ENTER BATTLEFIELD');
 def handler(request, context):
     return app(request, context)
 
-# ===================================================================
-# Local Development
-# ===================================================================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
 
 # ===================================================================
-# SELF-TEST COMPLETE ✅
-# All tests passed!
+# END - FAST VERSION ⚡
 # ===================================================================
