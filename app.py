@@ -6,9 +6,9 @@ import hmac
 import hashlib
 import logging
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from collections import defaultdict
-from flask import Flask, request, jsonify, send_from_directory, make_response
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
 # ------------------------------------------------------------------
@@ -26,29 +26,29 @@ log = logging.getLogger("studygenie")
 # ------------------------------------------------------------------
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 LEADERBOARD_FILE = "leaderboard.json"
-_BOARD_CACHE_TTL = 1.0
+_BOARD_CACHE_TTL = 1.5
 RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
 RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
-FREE_DAILY_WISHES = 8          # free users get this many per calendar day
-FREE_LIFETIME_CAP = 25         # absolute max free asks ever (anti-abuse)
-PRO_PRICE_PAISE = 4900         # ₹49
+FREE_DAILY_WISHES = 8
+FREE_LIFETIME_CAP = 25
+PRO_PRICE_PAISE = 4900          # ₹49
 MAX_NAME_LEN = 18
-MAX_Q_LEN = 800
+MAX_Q_LEN = 1200
 
 # ------------------------------------------------------------------
 # State
 # ------------------------------------------------------------------
 _state_lock = threading.RLock()
-REAL_LEADERBOARD = {}          # uid -> {id, name, xp, _phone}
-USER_DB = {}                   # phone -> {name, uid, phone, plan, xp, total_asks, last_active}
+REAL_LEADERBOARD = {}
+USER_DB = {}
 _board_cache = {"data": [], "ts": 0.0}
 DAILY_ACTIVE = defaultdict(set)
 TOTAL_ASKS = 0
-DAILY_WISHES = defaultdict(lambda: defaultdict(int))  # date -> phone/uid -> count
+DAILY_WISHES = defaultdict(lambda: defaultdict(int))
 
 # ------------------------------------------------------------------
-# Redis (strongly preferred for India launch)
+# Redis
 # ------------------------------------------------------------------
 r_client = None
 try:
@@ -70,7 +70,7 @@ try:
     import razorpay
     if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET:
         razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
-        log.info("Razorpay client ready")
+        log.info("Razorpay ready")
 except Exception as e:
     log.warning(f"Razorpay init failed: {e}")
     razorpay_client = None
@@ -84,7 +84,7 @@ try:
     API_KEY = os.environ.get("GOOGLE_API_KEY", "")
     if API_KEY:
         client = genai.Client(api_key=API_KEY)
-        log.info("Gemini client ready")
+        log.info("Gemini ready")
 except Exception as e:
     log.warning(f"Gemini init failed: {e}")
     client = None
@@ -115,7 +115,7 @@ def load_from_file():
             REAL_LEADERBOARD = data.get("board", {})
             USER_DB = data.get("users", {})
             TOTAL_ASKS = data.get("total_asks", 0)
-        log.info(f"Loaded {len(USER_DB)} users, {len(REAL_LEADERBOARD)} board entries")
+        log.info(f"Loaded {len(USER_DB)} users")
     except Exception as e:
         log.error(f"Load failed: {e}")
 
@@ -136,13 +136,6 @@ def save_to_file():
         log.error(f"Save failed: {e}")
 
 load_from_file()
-
-def _redis_hget_json(key, field, default=None):
-    try:
-        v = r_client.hget(key, field)
-        return json.loads(v) if v else default
-    except Exception:
-        return default
 
 def _redis_hset_json(key, field, obj):
     try:
@@ -203,10 +196,10 @@ def set_user_plan(phone: str, plan: str, name: str = "", uid: str = ""):
 
 def get_daily_wishes(phone_or_uid: str) -> int:
     today = _today()
-    key = f"{today}:{phone_or_uid}"
+    key = f"genie_daily:{today}:{phone_or_uid}"
     if r_client:
         try:
-            return int(r_client.get(f"genie_daily:{key}") or 0)
+            return int(r_client.get(key) or 0)
         except Exception:
             pass
     with _state_lock:
@@ -214,10 +207,14 @@ def get_daily_wishes(phone_or_uid: str) -> int:
 
 def incr_daily_wishes(phone_or_uid: str) -> int:
     today = _today()
-    key = f"{today}:{phone_or_uid}"
+    key = f"genie_daily:{today}:{phone_or_uid}"
     if r_client:
         try:
-            return r_client.incr(f"genie_daily:{key}")
+            pipe = r_client.pipeline()
+            pipe.incr(key)
+            pipe.expire(key, 60 * 60 * 48)  # 48 hours TTL
+            results = pipe.execute()
+            return int(results[0])
         except Exception:
             pass
     with _state_lock:
@@ -227,6 +224,15 @@ def incr_daily_wishes(phone_or_uid: str) -> int:
 def _compute_board():
     if r_client:
         try:
+            # Prefer Sorted Set if available
+            top = r_client.zrevrange("genie_board_z", 0, 14, withscores=True)
+            if top:
+                result = []
+                for uid, xp in top:
+                    name = r_client.hget("genie_board_names", uid) or "Warrior"
+                    result.append({"id": uid, "name": name, "xp": int(xp)})
+                return result
+            # Fallback to hash
             all_data = r_client.hgetall("genie_board")
             board = []
             for v in all_data.values():
@@ -283,13 +289,8 @@ def register_user():
     with _state_lock:
         if phone not in USER_DB:
             USER_DB[phone] = {
-                "name": name,
-                "uid": uid,
-                "phone": phone,
-                "plan": "free",
-                "xp": 0,
-                "total_asks": 0,
-                "registered": _today()
+                "name": name, "uid": uid, "phone": phone,
+                "plan": "free", "xp": 0, "total_asks": 0, "registered": _today()
             }
         else:
             USER_DB[phone]["name"] = name
@@ -319,11 +320,15 @@ def update_xp():
     name = _safe_name(d.get("name"))
     phone = _safe_phone(d.get("phone"))
     data = {"id": uid, "name": name, "xp": xp}
+
     if r_client:
         try:
+            r_client.zadd("genie_board_z", {uid: xp})
+            r_client.hset("genie_board_names", uid, name)
             r_client.hset("genie_board", uid, json.dumps(data))
         except Exception:
             pass
+
     with _state_lock:
         REAL_LEADERBOARD[uid] = {"id": uid, "name": name, "xp": xp, "_phone": phone}
         if phone and phone in USER_DB:
@@ -340,15 +345,17 @@ def ask_gemini():
     name = _safe_name(d.get("name"))
     uid = str(d.get("uid") or "anon")[:40]
     phone = _safe_phone(d.get("phone"))
+    want_detailed = bool(d.get("detailed", False))
 
     if not q:
         return jsonify({"ans": "Oye, sawal toh daal! 🔫"})
 
     today = _today()
     plan = get_user_plan(phone)
+    is_pro = plan == "pro"
 
-    # Server-side ammo enforcement
-    if plan != "pro":
+    # Server-side limits
+    if not is_pro:
         daily = get_daily_wishes(phone or uid)
         lifetime = 0
         with _state_lock:
@@ -358,7 +365,7 @@ def ask_gemini():
             DAILY_ACTIVE[today].add(uid)
         if daily >= FREE_DAILY_WISHES or lifetime >= FREE_LIFETIME_CAP:
             return jsonify({
-                "ans": f"Oye {name}! Aaj ka free ammo khatam (ya lifetime limit). ₹49 me Pro le le — unlimited fire 🔥\n\nBY SPARSH SINGHAL",
+                "ans": f"Oye {name}! Aaj ka free ammo khatam. ₹49 me Pro le le — unlimited + detailed solutions 🔥\n\nBY SPARSH SINGHAL",
                 "limit": True
             })
         incr_daily_wishes(phone or uid)
@@ -375,23 +382,47 @@ def ask_gemini():
     if not client:
         return jsonify({"ans": f"Oye {name}, API Key missing — BY SPARSH SINGHAL"})
 
-    try:
-        prompt = (
-            f"You are StudyGenie by Sparsh Singhal — savage Hinglish study AI for Indian students. "
-            f"Max 160 words. Be direct, motivating, slightly savage, use simple English + Hindi mix. "
-            f"Never refuse educational help. User name: {name}. Question: {q}"
+    # ---------- Prompt: Free = short | Pro/Detailed = full competitive-exam level ----------
+    if is_pro or want_detailed:
+        system = (
+            f"You are StudyGenie by Sparsh Singhal — elite Hinglish tutor for Indian competitive exams "
+            f"(JEE Advanced, NEET, GATE, UPSC, CAT, Board toppers).\n"
+            f"User: {name}\n\n"
+            f"RULES:\n"
+            f"- Give COMPLETE, correct, step-by-step solutions.\n"
+            f"- Show every important step, formula, reasoning and final answer clearly.\n"
+            f"- Explain WHY each step is taken and mention common student mistakes.\n"
+            f"- Use clear Hinglish (Hindi + simple English). Tone: slightly savage but highly respectful of hard work.\n"
+            f"- For numericals: show units and box the final answer.\n"
+            f"- Structure long answers with short headings if needed.\n"
+            f"- Max 550 words. Never refuse genuine educational help.\n"
+            f"- If question is incomplete, ask for missing info briefly.\n\n"
+            f"Question: {q}"
         )
+    else:
+        system = (
+            f"You are StudyGenie by Sparsh Singhal — savage Hinglish study AI for Indian students.\n"
+            f"User: {name}\n"
+            f"Give correct, clear, useful help for competitive exams and studies. "
+            f"Max 180 words. Be direct and motivating. Never refuse educational help.\n\n"
+            f"Question: {q}"
+        )
+
+    try:
         resp = client.models.generate_content(
             model="gemini-3.7-flash",
-            contents=prompt,
+            contents=system,
         )
         text = (resp.text or "").strip()
         if not text:
             text = "Thoda glitch hua, dubara try kar. — BY SPARSH SINGHAL"
-        return jsonify({"ans": text})
+        return jsonify({
+            "ans": text,
+            "mode": "detailed" if (is_pro or want_detailed) else "quick"
+        })
     except Exception as e:
         log.error(f"Gemini error: {e}")
-        return jsonify({"ans": f"Server busy hai thoda, 10 sec baad try kar. Error logged. — BY SPARSH SINGHAL"})
+        return jsonify({"ans": "Server busy hai thoda, 10 sec baad try kar. — BY SPARSH SINGHAL"})
 
 @app.route("/check_plan", methods=["POST"])
 def check_plan():
@@ -494,14 +525,13 @@ def razorpay_webhook():
 
 @app.route("/verify_payment", methods=["POST"])
 def verify_payment():
-    """Optional client-side confirmation helper (still trust webhook primarily)."""
     d = request.get_json(silent=True) or {}
     phone = _safe_phone(d.get("phone"))
     plan = get_user_plan(phone)
     return jsonify({"plan": plan})
 
 # ------------------------------------------------------------------
-# HTML (upgraded, anti-cheat oriented, clearer Pro status)
+# HTML
 # ------------------------------------------------------------------
 HTML_PAGE = r"""
 <!DOCTYPE html>
@@ -561,7 +591,7 @@ body{background:#050507!important;color:#fff;overflow-y:auto!important;min-heigh
       <p class="mono text-[9px] text-zinc-500 tracking-widest">> AMMO CRATE</p>
       <div id="lampRow" class="grid grid-cols-4 sm:grid-cols-5 gap-1.5 mt-2"></div>
       <button onclick="openPay()" id="reloadBtn" class="w-full mt-3 bg-[#ff4d00] mono font-black py-2.5 rounded-[9px] text-sm">RELOAD — ₹49</button>
-      <p id="planHint" class="mono text-[9px] text-zinc-500 mt-1.5 text-center">Free: 8/day • Pro = unlimited</p>
+      <p id="planHint" class="mono text-[9px] text-zinc-500 mt-1.5 text-center">Free: 8/day • Pro = unlimited + detailed</p>
     </div>
     <div class="hud rounded-[12px] p-3 border border-[#ff4d00]/25">
       <p class="mono text-[9px] text-[#ff4d00] tracking-widest font-black">> LIVE LEADERBOARD</p>
@@ -577,7 +607,7 @@ body{background:#050507!important;color:#fff;overflow-y:auto!important;min-heigh
     <div id="chat" class="flex-1 space-y-3 pr-1"></div>
     <div class="mt-3 bg-black border-2 border-[#2a2a2e] rounded-[11px] p-1 flex items-center gap-1 sticky bottom-1">
       <span class="mono text-xs px-1.5 text-[#ff4d00] font-black">></span>
-      <input id="q" class="flex-1 bg-transparent mono text-[13px] outline-none py-2.5 px-1" placeholder="Doubt daal..." maxlength="800" onkeypress="if(event.key==='Enter')ask()">
+      <input id="q" class="flex-1 bg-transparent mono text-[13px] outline-none py-2.5 px-1" placeholder="Doubt daal... (JEE/NEET/GATE bhi chalega)" maxlength="1200" onkeypress="if(event.key==='Enter')ask()">
       <button id="fireBtn" onclick="ask()" class="bg-[#ff4d00] mono font-black w-16 sm:w-20 h-10 rounded-[9px] text-sm">FIRE</button>
     </div>
   </div>
@@ -672,7 +702,6 @@ let stats = JSON.parse(localStorage.getItem('genie_stats') || '{"xp":0,"level":1
 function lamps(){
   let r = document.getElementById('lampRow');
   r.innerHTML = '';
-  let show = isPro ? 8 : Math.min(8, dailyLeft);
   for(let i=0; i<8; i++){
     let used = !isPro && i >= dailyLeft;
     r.innerHTML += `<div class="ammo ${used?'used':''}">${used?'💨':'🪔'}</div>`;
@@ -690,7 +719,7 @@ function render(){
   document.getElementById('q1b').style.width = (stats.q1/3*100) + '%';
   document.getElementById('proBadge').classList.toggle('hidden', !isPro);
   document.getElementById('reloadBtn').style.display = isPro ? 'none' : 'block';
-  document.getElementById('planHint').innerText = isPro ? 'PRO ACTIVE — Unlimited' : 'Free: 8/day • Pro = unlimited';
+  document.getElementById('planHint').innerText = isPro ? 'PRO ACTIVE — Unlimited + Detailed Solutions' : 'Free: 8/day • Pro = unlimited + detailed';
   lamps();
 }
 
@@ -766,7 +795,7 @@ async function openPay(){
       amount: order.amount,
       currency: order.currency,
       name: "StudyGenie Pro",
-      description: "Unlimited Ammo — Lifetime",
+      description: "Unlimited + Detailed Exam Solutions",
       order_id: order.order_id,
       prefill: { name: n, contact: ph },
       theme: { color: "#ff4d00" },
@@ -809,13 +838,19 @@ async function ask(){
     chat.innerHTML += `<div class="text-center mono text-[#ff4d00] font-black text-[11px] py-1">LEVEL UP — LVL ${stats.level}</div>`;
   }
   save();
-  chat.innerHTML += `<div id="typing" class="flex gap-2"><img src="/sparsh.jpg" class="w-9 h-9 rounded-[8px] border border-[#ff4d00] object-cover"><div class="bubble-ai p-3 mono text-[11px] text-zinc-400 animate-pulse">Locking target…</div></div>`;
+  chat.innerHTML += `<div id="typing" class="flex gap-2"><img src="/sparsh.jpg" class="w-9 h-9 rounded-[8px] border border-[#ff4d00] object-cover"><div class="bubble-ai p-3 mono text-[11px] text-zinc-400 animate-pulse">${isPro ? 'Detailed solution ban raha hai…' : 'Locking target…'}</div></div>`;
   chat.scrollTop = chat.scrollHeight;
 
   try{
     let res = await fetch('/ask', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({q, name:userName, phone:userPhone, uid:userId})
+      body: JSON.stringify({
+        q,
+        name: userName,
+        phone: userPhone,
+        uid: userId,
+        detailed: isPro          // Pro users automatically get detailed mode
+      })
     });
     let data = await res.json();
     document.getElementById('typing')?.remove();
@@ -828,7 +863,8 @@ async function ask(){
       dailyLeft = Math.max(0, dailyLeft - 1);
       render();
     }
-    chat.innerHTML += `<div class="flex gap-2 hitpop"><img src="/sparsh.jpg" class="w-9 h-9 rounded-[8px] border border-[#ff4d00] object-cover flex-shrink-0"><div class="bubble-ai p-3 max-w-[82%] text-[13px] whitespace-pre-wrap">${(data.ans||'').replace(/</g,'&lt;')}</div></div>`;
+    let modeTag = data.mode === 'detailed' ? '<span class="text-[9px] text-[#ff8a00] mono">DETAILED</span><br>' : '';
+    chat.innerHTML += `<div class="flex gap-2 hitpop"><img src="/sparsh.jpg" class="w-9 h-9 rounded-[8px] border border-[#ff4d00] object-cover flex-shrink-0"><div class="bubble-ai p-3 max-w-[82%] text-[13px] whitespace-pre-wrap">${modeTag}${(data.ans||'').replace(/</g,'&lt;')}</div></div>`;
   }catch(e){
     document.getElementById('typing')?.remove();
     chat.innerHTML += `<div class="flex gap-2"><div class="bubble-ai p-3 text-[12px]">Network issue. Dubara try kar. — BY SPARSH SINGHAL</div></div>`;
@@ -840,7 +876,7 @@ async function ask(){
 }
 
 // Init
-document.getElementById('chat').innerHTML = `<div class="flex gap-2 hitpop"><img src="/sparsh.jpg" class="w-10 h-10 rounded-[8px] border border-[#ff4d00] object-cover"><div class="bubble-ai p-3.5 max-w-[85%] text-[13px] leading-relaxed">🔥 <b>OYE WARRIOR!</b><br><br>Main hoon <b>Sparsh Singhal ka StudyGenie</b>. Free me 8 doubts/day. Pro le to unlimited.<br><br><span class="mono text-[9px] text-[#ff4d00]">BY SPARSH SINGHAL | SOUND ON</span></div></div>`;
+document.getElementById('chat').innerHTML = `<div class="flex gap-2 hitpop"><img src="/sparsh.jpg" class="w-10 h-10 rounded-[8px] border border-[#ff4d00] object-cover"><div class="bubble-ai p-3.5 max-w-[85%] text-[13px] leading-relaxed">🔥 <b>OYE WARRIOR!</b><br><br>Main hoon <b>Sparsh Singhal ka StudyGenie</b>.<br>Free: short answers<br>Pro: full detailed solutions for JEE / NEET / GATE level questions.<br><br><span class="mono text-[9px] text-[#ff4d00]">BY SPARSH SINGHAL</span></div></div>`;
 checkOnboard();
 render();
 loadBoard();
