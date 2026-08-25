@@ -1,230 +1,118 @@
-# ===================================================================
-# STUDYGENIE - FINALLY WORKING 🔥
-# By Sparsh Singhal - GROQ API WORKING!
-# ===================================================================
-
 import os
-import re
 import time
 import json
-import logging
+import threading
 import hmac
 import hashlib
-import secrets
-from datetime import datetime
+from datetime import date
 from collections import defaultdict
-from functools import wraps
-import urllib.request
-import urllib.error
-
-# ===================================================================
-# Logging
-# ===================================================================
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-log = logging.getLogger("studygenie")
-
-# ===================================================================
-# Flask
-# ===================================================================
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
-# ===================================================================
-# Config - YOUR API KEY IS HERE 🔥
-# ===================================================================
-SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_urlsafe(32))
-ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", secrets.token_urlsafe(32))
+# ------------------------------------------------------------------
+# Config
+# ------------------------------------------------------------------
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+LEADERBOARD_FILE = "leaderboard.json"
+_BOARD_CACHE_TTL = 0.5
 
-# 🔥🔥🔥 YOUR GROQ API KEY - HARDCODED 🔥🔥🔥
-GROQ_API_KEY = "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"
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+RAZORPAY_WEBHOOK_SECRET = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
 
-FREE_ASK_LIMIT = int(os.environ.get("FREE_ASK_LIMIT", "10"))
-PRO_AMOUNT = int(os.environ.get("PRO_AMOUNT", "4900"))
-DEV_PASSWORD = os.environ.get("DEV_PASSWORD", "sparsh123")
+# ------------------------------------------------------------------
+# State
+# ------------------------------------------------------------------
+_state_lock = threading.Lock()
+REAL_LEADERBOARD = {}
+USER_DB = {}
+_board_cache = {"data": [], "ts": 0.0}
+DAILY_ACTIVE = defaultdict(set)
+TOTAL_ASKS = 0
 
-# ===================================================================
-# Redis (Optional)
-# ===================================================================
+# ------------------------------------------------------------------
+# Redis (optional)
+# ------------------------------------------------------------------
+r_client = None
 try:
     import redis
-    REDIS_AVAILABLE = True
-except:
-    REDIS_AVAILABLE = False
-    redis = None
+    REDIS_URL = os.environ.get("REDIS_URL") or os.environ.get("UPSTASH_REDIS_URL")
+    if REDIS_URL:
+        r_client = redis.from_url(REDIS_URL, decode_responses=True)
+        r_client.ping()
+except Exception:
+    r_client = None
 
-# ===================================================================
-# Storage
-# ===================================================================
-class Storage:
-    def __init__(self):
-        self.users = {}
-        self.leaderboard = {}
-        self.ask_counts = defaultdict(int)
-        self.total_asks = 0
-        self.cache_ts = 0
-        self.cache_data = []
-    
-    def get_user(self, phone):
-        if not phone:
-            return None
-        return self.users.get(phone)
-    
-    def get_user_by_uid(self, uid):
-        for user in self.users.values():
-            if user.get("uid") == uid:
-                return user
-        return None
-    
-    def save_user(self, data):
-        try:
-            phone = data.get("phone")
-            if not phone:
-                return False
-            self.users[phone] = data
-            return True
-        except:
-            return False
-    
-    def get_plan(self, phone):
-        user = self.get_user(phone)
-        return user.get("plan", "free") if user else "free"
-    
-    def update_plan(self, phone, plan):
-        user = self.get_user(phone)
-        if not user:
-            user = {"phone": phone, "uid": secrets.token_urlsafe(16), "name": "Warrior", "plan": "free", "xp": 0, "level": 1}
-        user["plan"] = plan
-        return self.save_user(user)
-    
-    def get_leaderboard(self, limit=10):
-        sorted_users = sorted(self.leaderboard.values(), key=lambda x: x.get("xp", 0), reverse=True)[:limit]
-        return [{"id": u.get("id"), "name": u.get("name", "Warrior"), "xp": u.get("xp", 0), "level": u.get("level", 1), "rank": i+1} for i, u in enumerate(sorted_users)]
-    
-    def update_leaderboard(self, uid, name, xp, phone=None, level=1):
-        self.leaderboard[uid] = {"id": uid, "name": name, "xp": xp, "level": level}
-    
-    def increment_ask(self, uid):
-        self.ask_counts[uid] = self.ask_counts.get(uid, 0) + 1
-        self.total_asks += 1
-        return self.ask_counts[uid]
-    
-    def get_ask_count(self, uid):
-        return self.ask_counts.get(uid, 0)
-    
-    def get_stats(self):
-        return {"total_users": len(self.users), "total_asks": self.total_asks, "date": datetime.utcnow().strftime("%Y-%m-%d")}
+# ------------------------------------------------------------------
+# Razorpay
+# ------------------------------------------------------------------
+razorpay_client = None
+try:
+    import razorpay
+    if RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET:
+        razorpay_client = razorpay.Client(auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET))
+except Exception:
+    razorpay_client = None
 
-storage = Storage()
+# ------------------------------------------------------------------
+# Persistence
+# ------------------------------------------------------------------
+def load_from_file():
+    global REAL_LEADERBOARD, USER_DB
+    if not os.path.exists(LEADERBOARD_FILE):
+        return
+    try:
+        with open(LEADERBOARD_FILE, "r") as f:
+            data = json.load(f)
+            REAL_LEADERBOARD = data.get("board", {})
+            USER_DB = data.get("users", {})
+    except Exception:
+        pass
 
-# ===================================================================
-# AI SERVICE - DIRECT API CALL 🔥
-# ===================================================================
-class AIService:
-    def __init__(self):
-        self.api_key = GROQ_API_KEY
-        self.is_working = bool(self.api_key and self.api_key != "gsk_xxxxx")
-        log.info(f"🔥 AI Service: {'WORKING' if self.is_working else 'NOT CONFIGURED'}")
-    
-    def generate(self, question, name="Warrior", is_pro=False):
-        """Direct API call to GROQ - 100% Working!"""
-        
-        if not self.is_working:
-            return f"🔥 Oye {name}! API key set nahi hai! Please check GROQ_API_KEY."
-        
-        try:
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            
-            data = {
-                "model": "mixtral-8x7b-32768",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": f"You are StudyGenie, an AI tutor created by Sparsh Singhal. User: {name}. Answer in Hinglish. Be accurate, helpful, and savage in a fun way. Show steps for numerical problems."
-                    },
-                    {
-                        "role": "user",
-                        "content": question
-                    }
-                ],
-                "temperature": 0.7,
-                "max_tokens": 600
-            }
-            
-            json_data = json.dumps(data).encode('utf-8')
-            
-            req = urllib.request.Request(
-                url,
-                data=json_data,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
-                }
-            )
-            
-            with urllib.request.urlopen(req, timeout=20) as response:
-                response_data = response.read().decode('utf-8')
-                result = json.loads(response_data)
-                
-                if "choices" in result and len(result["choices"]) > 0:
-                    text = result["choices"][0]["message"]["content"]
-                    if text:
-                        log.info(f"✅ AI Response generated successfully")
-                        return text.strip()
-                
-                return f"⚠️ No response from AI. Please try again.\n\n- BY SPARSH SINGHAL"
-                
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode('utf-8') if e.fp else ""
-            log.error(f"HTTP Error: {e.code} - {error_body}")
-            return f"⚠️ API Error: {e.code}\n\n{error_body[:200]}\n\n- BY SPARSH SINGHAL"
-        except urllib.error.URLError as e:
-            log.error(f"URL Error: {e.reason}")
-            return f"⚠️ Network Error: {e.reason}\n\nPlease try again.\n\n- BY SPARSH SINGHAL"
-        except Exception as e:
-            log.error(f"General Error: {str(e)}")
-            return f"⚠️ Error: {str(e)}\n\nPlease try again.\n\n- BY SPARSH SINGHAL"
+def save_to_file():
+    if r_client:
+        return
+    try:
+        with open(LEADERBOARD_FILE, "w") as f:
+            json.dump({"board": REAL_LEADERBOARD, "users": USER_DB}, f)
+    except Exception:
+        pass
 
-ai_service = AIService()
+load_from_file()
 
-# ===================================================================
-# Helpers
-# ===================================================================
-def clean_phone(phone):
-    if not phone:
-        return ""
-    phone = re.sub(r'[^0-9]', '', str(phone))[:10]
-    return phone if re.match(r"^\d{10}$", phone) else ""
-
-def clean_name(name):
-    if not name:
-        return "Warrior"
-    return re.sub(r'[<>"\'\\]', '', str(name))[:50]
-
-def generate_uid():
-    return secrets.token_urlsafe(16)
-
-def admin_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not ADMIN_TOKEN:
-            return jsonify({"error": "Admin not configured"}), 500
-        supplied = request.headers.get("X-Admin-Token") or request.args.get("token")
-        if not supplied or not hmac.compare_digest(supplied, ADMIN_TOKEN):
-            return jsonify({"error": "Unauthorized"}), 401
-        return f(*args, **kwargs)
-    return decorated
-
-# ===================================================================
-# Flask App
-# ===================================================================
+# ------------------------------------------------------------------
+# Flask
+# ------------------------------------------------------------------
 app = Flask(__name__)
-app.secret_key = SECRET_KEY
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app)
 
-# ===================================================================
+client = None
+try:
+    from google import genai
+    API_KEY = os.environ.get("GOOGLE_API_KEY", "")
+    if API_KEY:
+        client = genai.Client(api_key=API_KEY)
+except Exception:
+    client = None
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
+def _compute_board():
+    if r_client:
+        try:
+            all_data = r_client.hgetall("genie_board")
+            board = [json.loads(v) for v in all_data.values()]
+            return sorted(board, key=lambda x: x.get("xp", 0), reverse=True)[:10]
+        except Exception:
+            pass
+    with _state_lock:
+        sorted_users = sorted(REAL_LEADERBOARD.values(), key=lambda x: x.get("xp", 0), reverse=True)[:10]
+        return [{"id": u["id"], "name": u["name"], "xp": u["xp"]} for u in sorted_users]
+
+# ------------------------------------------------------------------
 # Routes
-# ===================================================================
+# ------------------------------------------------------------------
 @app.route("/")
 def home():
     return HTML_PAGE
@@ -233,564 +121,565 @@ def home():
 def photo():
     try:
         return send_from_directory(".", "sparsh.jpg")
-    except:
+    except Exception:
         return "", 204
 
 @app.route("/register_user", methods=["POST"])
 def register_user():
-    try:
-        data = request.get_json(silent=True) or {}
-        phone = clean_phone(data.get("phone"))
-        name = clean_name(data.get("name", "Warrior"))
-        uid = data.get("uid") or generate_uid()
-        
-        if not phone:
-            return jsonify({"error": "Valid 10-digit phone required"}), 400
-        
-        existing = storage.get_user(phone)
-        if existing:
-            return jsonify({"ok": True, "uid": existing.get("uid"), "name": existing.get("name"), "phone": existing.get("phone"), "plan": existing.get("plan", "free")})
-        
-        user_data = {"phone": phone, "uid": uid, "name": name, "plan": "free", "xp": 0, "level": 1}
-        
-        if storage.save_user(user_data):
-            storage.update_leaderboard(uid, name, 0, phone, 1)
-            return jsonify({"ok": True, "uid": uid, "name": name, "phone": phone, "plan": "free"})
-        
-        return jsonify({"error": "Failed to save user"}), 500
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    d = request.get_json(silent=True) or {}
+    uid = d.get("uid")
+    name = (d.get("name") or "Warrior")[:20]
+    phone = (d.get("phone") or "")[:10]
+    if phone:
+        with _state_lock:
+            if phone not in USER_DB:
+                USER_DB[phone] = {"name": name, "uid": uid, "phone": phone, "plan": "free", "xp": 0}
+            else:
+                USER_DB[phone]["name"] = name
+                USER_DB[phone]["uid"] = uid
+        save_to_file()
+    return jsonify({"ok": True})
 
 @app.route("/leaderboard")
-def get_leaderboard():
-    try:
-        return jsonify(storage.get_leaderboard(10))
-    except:
-        return jsonify([]), 200
+def leaderboard():
+    now = time.time()
+    if now - _board_cache["ts"] > _BOARD_CACHE_TTL:
+        _board_cache["data"] = _compute_board()
+        _board_cache["ts"] = now
+    return jsonify(_board_cache["data"])
 
 @app.route("/update_xp", methods=["POST"])
 def update_xp():
-    try:
-        data = request.get_json(silent=True) or {}
-        uid = str(data.get("uid", ""))[:64]
-        xp = int(data.get("xp", 0))
-        phone = clean_phone(data.get("phone"))
-        name = clean_name(data.get("name", "Warrior"))
-        
-        if not uid:
-            return jsonify({"error": "UID required"}), 400
-        
-        level = 1 + (xp // 100) if xp > 0 else 1
-        storage.update_leaderboard(uid, name, xp, phone, level)
-        return jsonify({"ok": True, "level": level})
-    except:
-        return jsonify({"ok": True}), 200
+    d = request.get_json(silent=True) or {}
+    uid = d.get("uid", "anon")
+    xp = int(d.get("xp", 0))
+    name = (d.get("name") or "Warrior")[:20] or f"Grinder {uid[-3:].upper()}"
+    phone = (d.get("phone") or "")[:10]
+    data = {"id": uid, "name": name, "xp": xp}
+
+    if r_client:
+        try:
+            r_client.hset("genie_board", uid, json.dumps(data))
+            return jsonify({"ok": True})
+        except Exception:
+            pass
+
+    with _state_lock:
+        REAL_LEADERBOARD[uid] = {"id": uid, "name": name, "xp": xp, "_phone": phone}
+        if phone and phone in USER_DB:
+            USER_DB[phone]["xp"] = xp
+            USER_DB[phone]["name"] = name
+    save_to_file()
+    return jsonify({"ok": True})
 
 @app.route("/ask", methods=["POST"])
-def ask():
+def ask_gemini():
+    global TOTAL_ASKS
+    d = request.get_json(silent=True) or {}
+    q = d.get("q", "")
+    name = d.get("name", "Warrior")
+    uid = d.get("uid") or "anon"
+
+    today = str(date.today())
+    with _state_lock:
+        DAILY_ACTIVE[today].add(uid)
+        TOTAL_ASKS += 1
+
+    if not client:
+        return jsonify({"ans": f"Oye {name}, API Key missing - BY SPARSH SINGHAL"})
     try:
-        data = request.get_json(silent=True) or {}
-        question = (data.get("q") or "").strip()
-        name = clean_name(data.get("name", "Warrior"))
-        uid = str(data.get("uid", "anon"))[:64]
-        phone = clean_phone(data.get("phone"))
-        
-        if len(question) > 2000:
-            question = question[:2000]
-        if not question:
-            return jsonify({"error": "Empty question"}), 400
-        
-        plan = storage.get_plan(phone) if phone else "free"
-        used = storage.get_ask_count(uid)
-        
-        if plan == "free" and used >= FREE_ASK_LIMIT:
-            return jsonify({"limit_reached": True, "ans": f"🚀 AMMO KHATAM! 🔫\n\nOye {name}! Your free ammo is over!\n\n💎 RELOAD NOW - ₹49 Only!\n\n- BY SPARSH SINGHAL"}), 402
-        
-        # 🔥 GENERATE ANSWER
-        response_text = ai_service.generate(question, name, plan == "pro")
-        
-        storage.increment_ask(uid)
-        
-        user = storage.get_user(phone) if phone else None
-        xp_gained = 0
-        level_up = False
-        
-        if user:
-            xp_gained = 25 if plan == "pro" else 10
-            user["xp"] = user.get("xp", 0) + xp_gained
-            if user["xp"] >= user.get("level", 1) * 100:
-                user["level"] = user.get("level", 1) + 1
-                level_up = True
-            storage.save_user(user)
-            storage.update_leaderboard(uid, user.get("name", name), user.get("xp", 0), phone, user.get("level", 1))
-        
-        return jsonify({"ans": response_text, "xp_gained": xp_gained, "level_up": level_up, "level": user.get("level", 1) if user else 1})
-        
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=f"You are StudyGenie by Sparsh Singhal. User {name}. Hinglish savage 180 words max. User: {q}",
+        )
+        return jsonify({"ans": resp.text})
     except Exception as e:
-        log.error(f"Ask error: {e}")
-        return jsonify({"ans": f"⚠️ Error: {str(e)}"}), 500
+        return jsonify({"ans": f"Error {e} - BY SPARSH SINGHAL"})
+
+@app.route("/admin_users")
+def admin_users():
+    if ADMIN_TOKEN and request.args.get("token") != ADMIN_TOKEN:
+        return jsonify({"error": "unauthorized"}), 401
+    with _state_lock:
+        return jsonify({"users": list(USER_DB.values())})
+
+@app.route("/admin_stats")
+def admin_stats():
+    if ADMIN_TOKEN and request.args.get("token") != ADMIN_TOKEN:
+        return jsonify({"error": "unauthorized"}), 401
+    today = str(date.today())
+    with _state_lock:
+        return jsonify({
+            "total_registered": len(USER_DB),
+            "total_on_leaderboard": len(REAL_LEADERBOARD),
+            "daily_active_today": len(DAILY_ACTIVE.get(today, set())),
+            "total_asks_all_time": TOTAL_ASKS,
+            "date": today
+        })
+
+# ------------------------------------------------------------------
+# Razorpay Routes
+# ------------------------------------------------------------------
+@app.route("/create_order", methods=["POST"])
+def create_order():
+    if not razorpay_client:
+        return jsonify({"error": "Razorpay not configured"}), 500
+
+    d = request.get_json(silent=True) or {}
+    uid = d.get("uid", "anon")
+    name = (d.get("name") or "Warrior")[:20]
+    phone = (d.get("phone") or "")[:10]
+
+    try:
+        order = razorpay_client.order.create({
+            "amount": 4900,  # ₹49
+            "currency": "INR",
+            "receipt": f"sg_{uid}_{int(time.time())}",
+            "notes": {
+                "uid": uid,
+                "name": name,
+                "phone": phone,
+                "product": "StudyGenie Pro"
+            }
+        })
+        return jsonify({
+            "order_id": order["id"],
+            "amount": order["amount"],
+            "currency": order["currency"],
+            "key_id": RAZORPAY_KEY_ID
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/razorpay/webhook", methods=["POST"])
+def razorpay_webhook():
+    if not RAZORPAY_WEBHOOK_SECRET:
+        return jsonify({"error": "Webhook secret not set"}), 500
+
+    payload = request.get_data()
+    signature = request.headers.get("X-Razorpay-Signature", "")
+
+    expected = hmac.new(
+        RAZORPAY_WEBHOOK_SECRET.encode(),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected, signature):
+        return jsonify({"error": "Invalid signature"}), 400
+
+    event = request.get_json(silent=True) or {}
+    if event.get("event") == "payment.captured":
+        payment = event.get("payload", {}).get("payment", {}).get("entity", {})
+        notes = payment.get("notes", {})
+        phone = notes.get("phone", "")
+        uid = notes.get("uid", "")
+        name = notes.get("name", "Warrior")
+
+        if phone:
+            with _state_lock:
+                if phone in USER_DB:
+                    USER_DB[phone]["plan"] = "pro"
+                else:
+                    USER_DB[phone] = {
+                        "name": name,
+                        "uid": uid,
+                        "phone": phone,
+                        "plan": "pro",
+                        "xp": 0
+                    }
+            save_to_file()
+            print(f"✅ PRO UNLOCKED → {phone} | {name}")
+
+    return jsonify({"status": "ok"})
 
 @app.route("/check_plan", methods=["POST"])
 def check_plan():
-    try:
-        data = request.get_json(silent=True) or {}
-        phone = clean_phone(data.get("phone"))
-        plan = storage.get_plan(phone) if phone else "free"
-        return jsonify({"plan": plan})
-    except:
-        return jsonify({"plan": "free"}), 200
+    d = request.get_json(silent=True) or {}
+    phone = (d.get("phone") or "")[:10]
+    with _state_lock:
+        user = USER_DB.get(phone)
+        plan = user.get("plan", "free") if user else "free"
+    return jsonify({"plan": plan})
 
-@app.route("/admin/stats")
-@admin_required
-def admin_stats():
-    try:
-        return jsonify(storage.get_stats())
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/admin/users")
-@admin_required
-def admin_users():
-    try:
-        users = list(storage.users.values())[:100]
-        return jsonify({"users": users, "total": len(users)})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/admin/force_pro", methods=["POST"])
-@admin_required
-def admin_force_pro():
-    try:
-        data = request.get_json(silent=True) or {}
-        phone = clean_phone(data.get("phone"))
-        if not phone:
-            return jsonify({"error": "Phone required"}), 400
-        if storage.update_plan(phone, "pro"):
-            return jsonify({"ok": True, "phone": phone, "plan": "pro"})
-        return jsonify({"error": "Failed"}), 500
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# ===================================================================
+# ------------------------------------------------------------------
 # HTML
-# ===================================================================
-HTML_PAGE = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StudyGenie 🔥</title>
+# ------------------------------------------------------------------
+HTML_PAGE = r"""
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyGenie by Sparsh Singhal</title>
 <script src="https://cdn.tailwindcss.com"></script>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@800&display=swap" rel="stylesheet">
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #050507; color: #fff; font-family: system-ui, sans-serif; min-height: 100vh; background-image: radial-gradient(circle at 50% 0%, #1a1208 0%, #050507 60%); }
-.hud { background: rgba(17,17,19,0.95); border: 1px solid #232326; border-radius: 16px; padding: 20px; backdrop-filter: blur(10px); }
-.btn-fire { background: linear-gradient(90deg, #ff4d00, #ff8a00); border: none; padding: 12px 28px; border-radius: 12px; font-weight: 900; cursor: pointer; color: #fff; font-size: 16px; transition: all 0.3s; }
-.btn-fire:hover { transform: scale(1.05); }
-.bubble-ai { background: #17171a; border-left: 4px solid #ff4d00; border-radius: 4px 16px 16px 16px; padding: 14px 18px; white-space: pre-wrap; line-height: 1.8; }
-.bubble-user { background: #fff; color: #000; border-radius: 14px 14px 2px 14px; padding: 12px 18px; font-weight: 900; display: inline-block; }
-.progress { height: 14px; background: #0f0f11; border: 1px solid #2a2a2e; border-radius: 4px; overflow: hidden; }
-.progress > div { height: 100%; background: linear-gradient(90deg, #ff4d00, #ff8a00); transition: width 0.5s; }
-.ammo { width: 42px; height: 52px; background: #121216; border: 2px solid #2e2e33; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; margin: 2px; font-size: 20px; transition: all 0.3s; }
-.ammo.used { opacity: 0.15; transform: scale(0.85); }
-#chat { max-height: 55vh; overflow-y: auto; scroll-behavior: smooth; }
-#chat::-webkit-scrollbar { width: 4px; }
-#chat::-webkit-scrollbar-track { background: #0f0f11; }
-#chat::-webkit-scrollbar-thumb { background: #ff4d00; border-radius: 4px; }
-.input-glow:focus { border-color: #ff4d00 !important; box-shadow: 0 0 20px rgba(255,77,0,0.2); }
-.dev-badge { background: #ff4d00; color: #fff; font-size: 10px; padding: 2px 8px; border-radius: 10px; display: none; font-weight: 900; }
+body{background:#050507!important;color:#fff;overflow-y:auto!important;min-height:100vh;background-image:radial-gradient(circle at 50% 0%,#1a1208 0%,#050507 60%)}
+.mono{font-family:'JetBrains Mono',monospace}
+.hud{background:rgba(17,17,19,0.96);border:1px solid #232326}
+.bubble-user{background:#fff;color:#000;border-radius:14px 14px 2px 14px;font-weight:900}
+.bubble-ai{background:#17171a;border-left:4px solid #ff4d00;border-radius:4px 16px 16px 16px}
+.ammo{width:42px;height:52px;background:#121216;border:1px solid #2e2e33;border-radius:6px;display:flex;align-items:center;justify-content:center}
+.ammo.used{opacity:.15;transform:scale(.9)}
+.progress{height:12px;background:#0f0f11;border:1px solid #2a2a2e;transform:skew(-10deg);border-radius:2px;overflow:hidden}
+.progress>div{height:100%;background:linear-gradient(90deg,#ff4d00,#ff8a00);box-shadow:0 0 10px #ff4d00}
+#chat{max-height:60vh;overflow-y:auto!important;scroll-behavior:smooth}
+.hitpop{animation:pop.3s cubic-bezier(.175,.885,.32,1.275)} @keyframes pop{0%{transform:scale(.6)}100%{transform:scale(1)}}
+.input-glow:focus{border-color:#ff4d00!important;box-shadow:0 0 15px rgba(255,77,0,0.3)}
 </style>
 </head>
-<body>
-
-<div id="onboard" style="position:fixed;inset:0;background:rgba(0,0,0,0.97);display:flex;align-items:center;justify-content:center;z-index:999;backdrop-filter:blur(10px)">
-  <div class="hud max-w-[420px] w-full">
-    <div class="flex items-center gap-4">
-      <img src="/sparsh.jpg" class="w-16 h-16 rounded-xl border-2 border-[#ff4d00] object-cover">
-      <div>
-        <h2 class="text-2xl font-black">🔥 REGISTER</h2>
-        <p class="text-[#ff8a00] text-sm font-bold">BY SPARSH SINGHAL</p>
+<body class="p-3">
+<div id="main" class="max-w-[1500px] mx-auto pb-20">
+<div class="hud rounded-[16px] px-5 py-3 flex justify-between items-center sticky top-2 z-30">
+  <div class="flex items-center gap-6">
+    <img id="logo" src="/sparsh.jpg" class="w-28 h-28 rounded-[16px] border-[4px] border-[#ff4d00] object-cover shadow-[0_0_40px_rgba(255,77,0,0.7)] cursor-pointer hitpop">
+    <div>
+      <h1 class="font-black text-[22px] tracking-widest">STUDYGENIE <span class="text-[#ff4d00]">: BATTLE</span></h1>
+      <p class="mono text-[12px] text-[#ff8a00] mt-1">BY SPARSH SINGHAL // FOUNDER</p>
+      <div class="flex items-center gap-3 mt-3">
+        <span class="mono text-[10px] text-zinc-400">SHIELD</span>
+        <div class="w-40 progress"><div id="xpBarTop" style="width:0%"></div></div>
+        <span id="xpText" class="mono text-[11px] font-bold">0/100 XP</span>
       </div>
+      <p class="mono text-[9px] text-zinc-600 mt-1">LVL <span id="lvlTop">1</span> // <span id="userNameTop" class="text-[#ff4d00]"></span> // RANK #<span id="rankTop">?</span></p>
     </div>
-    <p class="text-sm text-zinc-400 mt-3">Enter the battlefield!</p>
-    <div class="mt-4 space-y-3">
-      <input id="inpName" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="⚡ Your Name" maxlength="20">
-      <input id="inpPhone" class="w-full bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="📱 10 digit phone" maxlength="10" type="tel">
-    </div>
-    <button onclick="registerUser()" class="btn-fire w-full mt-4" id="registerBtn">🔥 ENTER</button>
-    <p id="registerStatus" class="text-xs text-zinc-500 mt-2 text-center"></p>
+  </div>
+  <div class="mono text-right">
+    <div class="text-[10px] text-zinc-500 tracking-widest">AMMO</div>
+    <div class="font-black text-3xl"><span id="wishLeft">10</span>/10</div>
   </div>
 </div>
 
-<div id="app" style="display:none;max-width:1500px;margin:0 auto;padding:16px">
-  <div class="hud flex justify-between items-center sticky top-2 z-30">
-    <div class="flex items-center gap-6">
-      <img id="logo" src="/sparsh.jpg" class="w-24 h-24 rounded-[16px] border-4 border-[#ff4d00] object-cover cursor-pointer" onclick="handleLogoClick()">
-      <div>
-        <h1 class="text-2xl font-black">STUDYGENIE 🔥</h1>
-        <p class="text-[#ff8a00] text-sm font-bold">BY SPARSH SINGHAL</p>
-        <div class="flex items-center gap-3 mt-2">
-          <span class="text-xs text-zinc-400">XP</span>
-          <div class="progress w-40"><div id="xpBar" style="width:0%"></div></div>
-          <span id="xpText" class="text-xs font-bold">0/100</span>
-        </div>
-        <p class="text-xs text-zinc-600">LVL <span id="lvl">1</span> | <span id="userName" class="text-[#ff4d00]">WARRIOR</span></p>
+<div class="grid grid-cols-12 gap-3 mt-3">
+  <div class="col-span-12 lg:col-span-3 space-y-3">
+    <div class="hud rounded-[14px] p-4">
+      <p class="mono text-[10px] text-zinc-500 tracking-widest">> MISSIONS BY SPARSH SINGHAL</p>
+      <div class="mt-4 bg-black p-3 rounded-[10px] border-l-[3px] border-[#ff4d00]">
+        <div class="flex justify-between mono text-[11px] font-bold"><span>ELIMINATE 3 DOUBTS</span><span id="q1t">0/3</span></div>
+        <div class="progress mt-2"><div id="q1b" style="width:0%"></div></div>
       </div>
     </div>
-    <div class="flex items-center gap-4">
-      <div id="devBadge" class="dev-badge">🔓 DEV</div>
-      <div class="text-right">
-        <div class="text-xs text-zinc-500">🔥 AMMO</div>
-        <div class="text-3xl font-black"><span id="ammoLeft">10</span>/10</div>
-      </div>
-      <div class="w-px h-12 bg-zinc-800"></div>
-      <div class="text-right">
-        <div class="text-xs text-zinc-500">💎 PLAN</div>
-        <div id="planDisplay" class="font-bold text-[#ff8a00]">FREE</div>
+
+    <div class="hud rounded-[14px] p-4">
+      <p class="mono text-[10px] text-zinc-500 tracking-widest">> AMMO CRATE</p>
+      <div id="lampRow" class="grid grid-cols-5 gap-2 mt-3"></div>
+      <button onclick="openPay()" class="w-full mt-4 bg-[#ff4d00] mono font-black py-3 rounded-[10px]">RELOAD - ₹49</button>
+    </div>
+
+    <div class="hud rounded-[14px] p-4 border border-[#ff4d00]/30">
+      <p class="mono text-[10px] text-[#ff4d00] tracking-widest font-black">> LIVE LEADERBOARD 🏆</p>
+      <p class="mono text-[9px] text-zinc-500 mt-1">ONLY NAME + XP VISIBLE</p>
+      <div id="board" class="mt-3 space-y-2 mono text-[11px]"></div>
+      <div class="mt-3 mono text-[9px] text-zinc-500 bg-black p-2.5 rounded border border-zinc-800">
+        <span class="text-[#ff8a00]">PRIVATE 🔒</span><br>
+        <span id="myId"></span><br><span id="myPhone"></span>
       </div>
     </div>
   </div>
 
-  <div class="grid grid-cols-12 gap-4 mt-4">
-    <div class="col-span-12 lg:col-span-3 space-y-4">
-      <div class="hud">
-        <p class="text-xs text-zinc-500">🎯 MISSIONS</p>
-        <div class="bg-black p-3 rounded mt-2 border-l-4 border-[#ff4d00]">
-          <div class="flex justify-between text-sm font-bold"><span>💪 3 DOUBTS</span><span id="q1">0/3</span></div>
-          <div class="progress mt-1"><div id="q1b" style="width:0%"></div></div>
-        </div>
-        <div class="bg-black p-3 rounded mt-2 border-l-4 border-[#ff8a00]">
-          <div class="flex justify-between text-sm font-bold"><span>🔥 10 QUESTIONS</span><span id="q2">0/10</span></div>
-          <div class="progress mt-1"><div id="q2b" style="width:0%"></div></div>
-        </div>
-      </div>
+  <div class="col-span-12 lg:col-span-9 hud rounded-[16px] p-4 flex flex-col">
+    <div id="chat" class="flex-1 space-y-4 pr-2"></div>
+    <div class="mt-4 bg-black border-2 border-[#2a2a2e] rounded-[12px] p-1.5 flex items-center gap-2 sticky bottom-2">
+      <span class="mono text-xs px-2 text-[#ff4d00] font-black">></span>
+      <input id="q" class="flex-1 bg-transparent mono text-[14px] outline-none py-3 px-2" placeholder="ENTER COMMAND..." onkeypress="if(event.key==='Enter')ask()">
+      <button onclick="ask()" class="bg-[#ff4d00] mono font-black w-20 h-11 rounded-[10px]">FIRE 🔫</button>
+    </div>
+  </div>
+</div>
+</div>
 
-      <div class="hud">
-        <p class="text-xs text-zinc-500">🔫 AMMO CRATE</p>
-        <div id="lamps" class="mt-2"></div>
-        <button onclick="openPay()" class="btn-fire w-full mt-3 text-sm">💎 RELOAD - ₹49</button>
-      </div>
-
-      <div class="hud">
-        <p class="text-xs text-[#ff4d00] font-black">🏆 LEADERBOARD</p>
-        <div id="board" class="mt-2 space-y-1"></div>
-        <div class="mt-2 text-xs text-zinc-500 bg-black p-2 rounded border border-zinc-800">
-          <span class="text-[#ff8a00]">🔒 PRIVATE</span><br>
-          <span id="myId"></span><br>
-          <span id="myPhone"></span>
-        </div>
+<!-- Onboard Modal -->
+<div id="onboardModal" class="fixed inset-0 z-[60] flex items-center justify-center p-4" style="background:rgba(0,0,0,0.92)">
+  <div class="hud rounded-[20px] p-7 max-w-[420px] w-full border-2 border-[#ff4d00]/50">
+    <div class="flex items-center gap-4">
+      <img src="/sparsh.jpg" class="w-16 h-16 rounded-[12px] border-2 border-[#ff4d00] object-cover">
+      <div>
+        <h2 class="font-black text-[20px] leading-none">WARRIOR REGISTRATION</h2>
+        <p class="mono text-[11px] text-[#ff8a00] mt-1 font-bold">BY SPARSH SINGHAL</p>
       </div>
     </div>
-
-    <div class="col-span-12 lg:col-span-9">
-      <div class="hud" style="min-height:500px">
-        <div id="chat" class="space-y-3"></div>
-        <div class="mt-4 flex gap-2">
-          <span class="text-[#ff4d00] font-black text-xl">></span>
-          <input id="q" class="flex-1 bg-black border-2 border-zinc-800 rounded-xl px-4 py-3 text-white outline-none input-glow" placeholder="🔥 ANY QUESTION..." onkeypress="if(event.key==='Enter')ask()">
-          <button onclick="ask()" class="btn-fire">🔫 ASK</button>
-        </div>
-        <div class="mt-2 flex justify-between text-xs text-zinc-500">
-          <span>💡 10 free questions, then ₹49 for unlimited!</span>
-          <span>❤️ By Sparsh Singhal</span>
-        </div>
+    <p class="mono text-[11px] text-zinc-400 mt-4">Name leaderboard pe dikhega. Phone private hai.</p>
+    <div class="mt-5 space-y-3">
+      <div>
+        <label class="mono text-[10px] text-zinc-500">YOUR WARRIOR NAME *</label>
+        <input id="inpName" class="w-full mt-1 bg-black border-2 border-zinc-800 rounded-[10px] px-4 py-3 mono text-[14px] outline-none input-glow" placeholder="Ex: Aman..." maxlength="20">
+      </div>
+      <div>
+        <label class="mono text-[10px] text-zinc-500">PHONE (PRIVATE) *</label>
+        <input id="inpPhone" type="tel" class="w-full mt-1 bg-black border-2 border-zinc-800 rounded-[10px] px-4 py-3 mono text-[14px] outline-none input-glow" placeholder="10 digit" maxlength="10" inputmode="numeric">
       </div>
     </div>
+    <button onclick="saveOnboard()" class="w-full mt-6 bg-gradient-to-r from-[#ff4d00] to-[#ff8a00] mono font-black py-3.5 rounded-[12px]">ENTER BATTLEFIELD 🔫</button>
   </div>
 </div>
 
 <script>
-const STORAGE_KEY = 'studygenie_data';
-let appData = {
-  userId: 'user_' + Math.random().toString(36).substr(2,9),
-  name: '',
-  phone: '',
-  isPro: false,
-  isDev: false,
-  stats: { xp: 0, level: 1, wishes: 0, q1: 0, q2: 0, totalXp: 0 }
-};
+let audioCtx;
+function initAudio(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }
+function playSound(t){
+  try{
+    initAudio();
+    let o=audioCtx.createOscillator(); let g=audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination);
+    if(t=='fire'){o.frequency.value=900;o.type='square';g.gain.setValueAtTime(0.4,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.12);o.start();o.stop(audioCtx.currentTime+0.12);}
+    if(t=='hit'){o.frequency.value=500;o.type='sine';g.gain.setValueAtTime(0.3,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.2);o.start();o.stop(audioCtx.currentTime+0.2);}
+    if(t=='level'){o.frequency.value=600;o.type='sine';g.gain.setValueAtTime(0.4,audioCtx.currentTime);o.frequency.linearRampToValueAtTime(1200,audioCtx.currentTime+0.5);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.6);o.start();o.stop(audioCtx.currentTime+0.6);}
+    if(t=='empty'){o.frequency.value=150;o.type='sawtooth';g.gain.setValueAtTime(0.4,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.6);o.start();o.stop(audioCtx.currentTime+0.6);}
+    if(t=='click'){o.frequency.value=800;o.type='triangle';g.gain.setValueAtTime(0.2,audioCtx.currentTime);g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+0.1);o.start();o.stop(audioCtx.currentTime+0.1);}
+  }catch{}
+}
 
-function loadData() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      const data = JSON.parse(saved);
-      appData = { ...appData, ...data };
+let userId = localStorage.getItem('genie_userId') || 'user_' + Math.random().toString(36).substr(2,9);
+localStorage.setItem('genie_userId', userId);
+let userName = localStorage.getItem('genie_name') || '';
+let userPhone = localStorage.getItem('genie_phone') || '';
+let isPro = localStorage.getItem('genie_plan') === 'pro';
+let isDev = localStorage.getItem('isDev') === 'true';
+
+function checkOnboard(){
+  userName = localStorage.getItem('genie_name') || '';
+  userPhone = localStorage.getItem('genie_phone') || '';
+  if(!userName || !userPhone || userPhone.length != 10){
+    document.getElementById('onboardModal').classList.remove('hidden');
+  } else {
+    document.getElementById('onboardModal').classList.add('hidden');
+    document.getElementById('userNameTop').innerText = userName.toUpperCase();
+    document.getElementById('myId').innerText = `ID: ${userId} (private)`;
+    document.getElementById('myPhone').innerText = `PHONE: XXXXXX${userPhone.slice(-4)} 🔒`;
+  }
+}
+
+function saveOnboard(){
+  let n = document.getElementById('inpName').value.trim();
+  let p = document.getElementById('inpPhone').value.trim().replace(/[^0-9]/g,'');
+  if(n.length < 2){ alert('Naam daal!'); playSound('empty'); return; }
+  if(p.length != 10){ alert('10 digit phone'); playSound('empty'); return; }
+  localStorage.setItem('genie_name', n);
+  localStorage.setItem('genie_phone', p);
+  userName = n; userPhone = p;
+  playSound('level');
+  document.getElementById('onboardModal').classList.add('hidden');
+  document.getElementById('userNameTop').innerText = n.toUpperCase();
+  document.getElementById('myId').innerText = `ID: ${userId} (private)`;
+  document.getElementById('myPhone').innerText = `PHONE: XXXXXX${p.slice(-4)} 🔒`;
+  updateLeaderboard();
+  fetch('/register_user', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({uid:userId, name:n, phone:p})
+  });
+  checkMyPlan();
+}
+
+let stats = JSON.parse(localStorage.getItem('genie_stats') || '{"xp":0,"level":1,"wishes":0,"q1":0,"totalXp":0}');
+
+function lamps(){
+  let r = document.getElementById('lampRow');
+  r.innerHTML = '';
+  for(let i=0; i<10; i++){
+    let u = i < stats.wishes && !isDev && !isPro;
+    r.innerHTML += `<div class="ammo ${u?'used':''}">${u?'💨':'🪔'}</div>`;
+  }
+}
+
+function save(){ localStorage.setItem('genie_stats', JSON.stringify(stats)); render(); updateLeaderboard(); }
+
+function render(){
+  document.getElementById('wishLeft').innerText = (isDev || isPro) ? '∞' : (10 - stats.wishes);
+  document.getElementById('lvlTop').innerText = stats.level;
+  document.getElementById('xpBarTop').style.width = stats.xp + '%';
+  document.getElementById('xpText').innerText = stats.xp + '/100 XP';
+  document.getElementById('q1t').innerText = stats.q1 + '/3';
+  document.getElementById('q1b').style.width = (stats.q1/3*100) + '%';
+  lamps();
+}
+
+async function updateLeaderboard(){
+  try{
+    let n = localStorage.getItem('genie_name') || userName || 'Warrior';
+    let ph = localStorage.getItem('genie_phone') || userPhone || '';
+    await fetch('/update_xp', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        uid: userId,
+        name: n,
+        phone: ph,
+        xp: stats.totalXp || ((stats.level-1)*100 + stats.xp)
+      })
+    });
+    loadBoard();
+  }catch{}
+}
+
+async function loadBoard(){
+  try{
+    let r = await fetch('/leaderboard?t=' + Date.now());
+    let d = await r.json();
+    if(d.length == 0){
+      document.getElementById('board').innerHTML = `<div class="text-zinc-500 text-center py-2">No warriors yet.</div>`;
+      return;
     }
-  } catch(e) {}
+    let myRank = d.findIndex(u => u.id === userId) + 1;
+    document.getElementById('rankTop').innerText = myRank || '-';
+    document.getElementById('board').innerHTML = d.map((u,i) => {
+      let isMe = u.id === userId;
+      let medal = i==0 ? '👑' : i==1 ? '🥈' : i==2 ? '🥉' : `${i+1}.`;
+      return `<div class="flex justify-between items-center p-2.5 rounded-[8px] border ${isMe?'bg-[#ff4d00]/10 border-[#ff4d00]/50 text-white':'bg-black border-zinc-800 text-zinc-300'} hitpop">
+        <span>${medal} ${u.name} ${isMe?'[YOU]':''}</span>
+        <span class="text-[#ff4d00] font-black">${u.xp} XP</span>
+      </div>`;
+    }).join('');
+  }catch{}
 }
 
-function saveData() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
-  } catch(e) {}
-}
-
-loadData();
-
-let audioCtx = null;
-function playSound(type) {
-  try {
-    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-    osc.start();
-    osc.stop(audioCtx.currentTime + 0.15);
-  } catch(e) {}
-}
-
-let logoClickCount = 0;
-let logoClickTimer = null;
-
-function handleLogoClick() {
-  playSound('click');
-  logoClickCount++;
-  clearTimeout(logoClickTimer);
-  logoClickTimer = setTimeout(() => { logoClickCount = 0; }, 3000);
-  
-  if (logoClickCount >= 5) {
-    const password = prompt('🔐 Enter Secret Code:');
-    if (password === 'sparsh123') {
-      appData.isDev = !appData.isDev;
-      saveData();
-      if (appData.isDev) {
-        document.getElementById('devBadge').style.display = 'inline-block';
-        alert('🔓 DEV MODE ACTIVATED!');
-      } else {
-        document.getElementById('devBadge').style.display = 'none';
-        alert('🔒 DEV MODE DEACTIVATED');
-      }
+async function checkMyPlan(){
+  let ph = localStorage.getItem('genie_phone');
+  if(!ph) return;
+  try{
+    let r = await fetch('/check_plan', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({phone: ph})
+    });
+    let d = await r.json();
+    if(d.plan === 'pro'){
+      localStorage.setItem('genie_plan', 'pro');
+      isPro = true;
       render();
     }
-    logoClickCount = 0;
-  }
+  }catch{}
 }
 
-function registerUser() {
-  const name = document.getElementById('inpName').value.trim();
-  const phone = document.getElementById('inpPhone').value.trim().replace(/[^0-9]/g, '');
-  
-  if (!name || name.length < 2) { alert('Enter name!'); return; }
-  if (!phone || phone.length !== 10) { alert('Enter 10 digit phone!'); return; }
-  
-  appData.name = name;
-  appData.phone = phone;
-  saveData();
-  
-  fetch('/register_user', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ uid: appData.userId, name, phone })
-  })
-  .then(res => res.json())
-  .then(data => {
-    if (data.ok) {
-      document.getElementById('onboard').style.display = 'none';
-      document.getElementById('app').style.display = 'block';
-      initApp();
+async function openPay(){
+  playSound('empty');
+  let ph = localStorage.getItem('genie_phone') || '';
+  let n = localStorage.getItem('genie_name') || userName || 'Warrior';
+
+  if(!ph || ph.length !== 10){
+    alert("Pehle registration me phone number daalo!");
+    return;
+  }
+
+  try{
+    let res = await fetch('/create_order', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ uid: userId, name: n, phone: ph })
+    });
+    let order = await res.json();
+
+    if(order.error){
+      alert("Payment start nahi hua: " + order.error);
+      return;
     }
+
+    const options = {
+      key: order.key_id,
+      amount: order.amount,
+      currency: order.currency,
+      name: "StudyGenie Pro",
+      description: "Unlimited Ammo + 28 Features",
+      order_id: order.order_id,
+      prefill: { name: n, contact: ph },
+      theme: { color: "#ff4d00" },
+      handler: function(response){
+        playSound('level');
+        alert("✅ Payment Successful! Pro unlock ho raha hai... page refresh kar lo.");
+        setTimeout(() => location.reload(), 1500);
+      }
+    };
+
+    const rzp = new Razorpay(options);
+    rzp.open();
+  }catch(e){
+    alert("Error: " + e.message);
+  }
+}
+
+let c = 0;
+document.getElementById('logo').addEventListener('click', () => {
+  playSound('click'); c++;
+  if(c >= 5){
+    let p = prompt("DEV ACCESS - Code:");
+    if(p === "sparsh123"){
+      isDev = !isDev;
+      localStorage.setItem('isDev', isDev);
+      playSound(isDev ? 'level' : 'empty');
+      alert(isDev ? 'GOD MODE ON' : 'OFF');
+      render();
+    } else if(p !== null){ alert("ACCESS DENIED!"); }
+    c = 0;
+  }
+  setTimeout(() => c = 0, 2000);
+});
+
+async function ask(){
+  if(!localStorage.getItem('genie_name') || !localStorage.getItem('genie_phone')){
+    checkOnboard(); return;
+  }
+  let input = document.getElementById('q');
+  let q = input.value.trim();
+  if(!q) return;
+
+  if(!isDev && !isPro && stats.wishes >= 10){
+    openPay(); return;
+  }
+
+  playSound('fire');
+  let chat = document.getElementById('chat');
+  chat.innerHTML += `<div class="flex justify-end hitpop"><div class="bubble-user px-4 py-2 text-[14px] mono">${q}</div></div>`;
+  input.value = '';
+
+  stats.wishes++;
+  stats.q1 = Math.min(3, stats.q1 + 1);
+  stats.xp += 12;
+  stats.totalXp = (stats.totalXp || 0) + 12;
+  if(stats.xp >= 100){
+    stats.level++;
+    stats.xp = 0;
+    playSound('level');
+    chat.innerHTML += `<div class="text-center mono text-[#ff4d00] font-black text-[12px] py-2">LEVEL UP - LVL ${stats.level}</div>`;
+  }
+  save();
+
+  chat.innerHTML += `<div id="typing" class="flex gap-3"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-4 mono text-[12px] text-zinc-400 animate-pulse">> SPARSH SINGHAL'S GENIE LOCKING TARGET...</div></div>`;
+  chat.scrollTop = chat.scrollHeight;
+
+  let res = await fetch('/ask', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({q, name:userName, phone:userPhone, uid:userId})
   });
-}
-
-function initApp() {
-  document.getElementById('userName').textContent = appData.name.toUpperCase();
-  document.getElementById('myId').textContent = '🆔 ' + appData.userId;
-  document.getElementById('myPhone').textContent = '📱 ' + appData.phone.slice(0,2) + '******' + appData.phone.slice(-2);
-  render();
-  loadBoard();
-  checkPlan();
-  setInterval(loadBoard, 10000);
-}
-
-function render() {
-  const s = appData.stats;
-  const unlimited = appData.isPro || appData.isDev;
-  document.getElementById('ammoLeft').textContent = unlimited ? '∞' : (10 - s.wishes);
-  document.getElementById('lvl').textContent = s.level;
-  document.getElementById('xpBar').style.width = Math.min(100, s.xp) + '%';
-  document.getElementById('xpText').textContent = s.xp + '/100';
-  document.getElementById('q1').textContent = s.q1 + '/3';
-  document.getElementById('q1b').style.width = (s.q1/3*100) + '%';
-  document.getElementById('q2').textContent = s.q2 + '/10';
-  document.getElementById('q2b').style.width = (s.q2/10*100) + '%';
-  
-  let html = '';
-  for (let i = 0; i < 10; i++) {
-    let used = i < s.wishes && !appData.isPro && !appData.isDev;
-    html += `<div class="ammo${used ? ' used' : ''}">${used ? '💨' : '🪔'}</div>`;
-  }
-  document.getElementById('lamps').innerHTML = html;
-}
-
-function appendBubble(text, isUser = false) {
-  const chat = document.getElementById('chat');
-  const div = document.createElement('div');
-  div.className = isUser ? 'text-right mb-3' : 'mb-3';
-  const bubble = document.createElement('div');
-  bubble.className = isUser ? 'bubble-user' : 'bubble-ai';
-  bubble.textContent = text;
-  if (!isUser) {
-    const wrapper = document.createElement('div');
-    wrapper.className = 'flex gap-3';
-    const img = document.createElement('img');
-    img.src = '/sparsh.jpg';
-    img.className = 'w-10 h-10 rounded-xl border-2 border-[#ff4d00] object-cover';
-    wrapper.appendChild(img);
-    wrapper.appendChild(bubble);
-    div.appendChild(wrapper);
-  } else {
-    div.appendChild(bubble);
-  }
-  chat.appendChild(div);
+  let data = await res.json();
+  document.getElementById('typing')?.remove();
+  playSound('hit');
+  chat.innerHTML += `<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-4 max-w-[78%] text-[14px] whitespace-pre-wrap">${data.ans}</div></div>`;
   chat.scrollTop = chat.scrollHeight;
 }
 
-async function ask() {
-  if (!appData.name || !appData.phone) {
-    document.getElementById('onboard').style.display = 'flex';
-    return;
-  }
-  
-  const input = document.getElementById('q');
-  const q = input.value.trim();
-  if (!q) return;
-  
-  playSound('fire');
-  appendBubble(q, true);
-  input.value = '';
-  
-  const typingDiv = document.createElement('div');
-  typingDiv.className = 'mb-3';
-  typingDiv.innerHTML = '<div class="bubble-ai text-zinc-400">🔥 Thinking...</div>';
-  document.getElementById('chat').appendChild(typingDiv);
-  
-  try {
-    const res = await fetch('/ask', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q, name: appData.name, phone: appData.phone, uid: appData.userId })
-    });
-    
-    typingDiv.remove();
-    const data = await res.json();
-    
-    if (res.status === 402 || data.limit_reached) {
-      playSound('empty');
-      appendBubble(data.ans, false);
-      return;
-    }
-    
-    const s = appData.stats;
-    if (!appData.isDev) {
-      s.wishes++;
-      s.q1 = Math.min(3, s.q1 + 1);
-      s.q2 = Math.min(10, s.q2 + 1);
-      s.xp += data.xp_gained || 10;
-      s.totalXp = (s.totalXp || 0) + (data.xp_gained || 10);
-    }
-    
-    if (data.level_up && !appData.isDev) {
-      s.level = data.level;
-      playSound('level');
-      appendBubble('🔥 LEVEL UP - LVL ' + data.level + '!', false);
-    }
-    
-    saveData();
-    render();
-    playSound('hit');
-    appendBubble(data.ans, false);
-    
-  } catch(e) {
-    typingDiv.remove();
-    appendBubble('⚠️ Try again! - BY SPARSH SINGHAL', false);
-  }
-}
-
-async function loadBoard() {
-  try {
-    const res = await fetch('/leaderboard');
-    const data = await res.json();
-    let html = '';
-    data.forEach((u, i) => {
-      const isMe = u.id === appData.userId;
-      const medal = i === 0 ? '👑' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
-      html += `<div class="flex justify-between items-center p-2 rounded border ${isMe ? 'bg-[#ff4d00]/20' : 'bg-black'}">
-        <span>${medal} ${u.name} ${isMe ? '⭐' : ''}</span>
-        <span class="text-[#ff4d00] font-bold">${u.xp}XP</span>
-      </div>`;
-    });
-    document.getElementById('board').innerHTML = html || '<div class="text-zinc-500">No warriors yet</div>';
-  } catch(e) {}
-}
-
-async function checkPlan() {
-  if (!appData.phone) return;
-  try {
-    const res = await fetch('/check_plan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: appData.phone })
-    });
-    const data = await res.json();
-    if (data.plan === 'pro') {
-      appData.isPro = true;
-      saveData();
-      render();
-    }
-  } catch(e) {}
-}
-
-async function openPay() {
-  alert('💎 Payment coming soon!');
-}
-
-function checkOnboard() {
-  if (appData.name && appData.phone && appData.phone.length === 10) {
-    document.getElementById('onboard').style.display = 'none';
-    document.getElementById('app').style.display = 'block';
-    initApp();
-  }
-}
-
-document.getElementById('chat').innerHTML = `
-<div class="flex gap-3">
-  <img src="/sparsh.jpg" class="w-12 h-12 rounded-xl border-2 border-[#ff4d00] object-cover">
-  <div class="bubble-ai">
-    🔥 <b>OYE WARRIOR!</b><br><br>
-    Main hoon <b>Sparsh Singhal ka StudyGenie</b><br><br>
-    ✅ ANY Question → Answered!<br><br>
-    💪 <b>Kuch bhi pucho!</b><br><br>
-    <span class="text-[#ff8a00] text-xs">BY SPARSH SINGHAL | 10 FREE AMMO</span>
-  </div>
-</div>
-`;
+document.getElementById('chat').innerHTML = `<div class="flex gap-3 hitpop"><img src="/sparsh.jpg" class="w-12 h-12 rounded-[10px] border-2 border-[#ff4d00] object-cover"><div class="bubble-ai p-5 max-w-[78%] text-[14px] leading-relaxed">🔥 <b>OYE WARRIOR, BATTLEFIELD ME SWAGAT HAI!</b><br><br>Main hoon <b>Sparsh Singhal ka StudyGenie</b> — 28 features ke saath tere har doubt ko headshot dunga! 🔫<br><br><span class="mono text-[10px] text-[#ff4d00]">BY SPARSH SINGHAL | 28 FEATURES | SOUND ON 🔊</span></div></div>`;
 
 checkOnboard();
-console.log('🔥 StudyGenie loaded!');
+render();
+loadBoard();
+checkMyPlan();
+setInterval(loadBoard, 5000);
+
+if(localStorage.getItem('genie_name')) document.getElementById('inpName').value = localStorage.getItem('genie_name');
+if(localStorage.getItem('genie_phone')) document.getElementById('inpPhone').value = localStorage.getItem('genie_phone');
 </script>
 </body></html>
 """
 
-# ===================================================================
-# Vercel Handler
-# ===================================================================
-def handler(request, context):
-    return app(request, context)
-
-# ===================================================================
-# Run
-# ===================================================================
+# ------------------------------------------------------------------
+# Entry
+# ------------------------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"\n🔥 StudyGenie starting on http://localhost:{port}")
-    print(f"🤖 AI: {'WORKING' if ai_service.is_working else 'FAILED'}")
-    print(f"🔐 Dev Mode: Click logo 5x → password 'sparsh123'\n")
-    app.run(host="0.0.0.0", port=port, debug=False)
-
-# ===================================================================
-# END 🔥
-# ===================================================================
+    try:
+        from waitress import serve
+        print(f"Starting with waitress on 0.0.0.0:{port}")
+        serve(app, host="0.0.0.0", port=port, threads=200)
+    except ImportError:
+        app.run(host="0.0.0.0", port=port, threaded=True)
