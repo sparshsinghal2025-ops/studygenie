@@ -1,5 +1,6 @@
 {
   "version": 2,
+  "name": "studygenie-bot",
   "builds": [
     {
       "src": "app.py",
@@ -8,8 +9,17 @@
   ],
   "routes": [
     {
+      "src": "/api/(.*)",
+      "dest": "app.py"
+    },
+    {
       "src": "/(.*)",
       "dest": "app.py"
     }
-  ]
+  ],
+  "env": {
+    "BOT_TOKEN": "@bot_token",
+    "GOOGLE_API_KEY": "@google_api_key",
+    "REDIS_URL": "@redis_url"
+  }
 }
