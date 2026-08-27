@@ -96,10 +96,11 @@ class Config:
         self.validate()
 
     def validate(self) -> None:
-        if not self.BOT_TOKEN:
-            raise ValueError("BOT_TOKEN required")
-        if not self.GOOGLE_API_KEY:
-            raise ValueError("GOOGLE_API_KEY required")
+    if not self.BOT_TOKEN:
+        logger.error("BOT_TOKEN is missing")
+    if not self.GOOGLE_API_KEY:
+        logger.error("GOOGLE_API_KEY is missing")
+    # Do NOT raise ValueError here
 
 
 config = Config()
