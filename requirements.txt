@@ -4,3 +4,5 @@ redis
 razorpay
 google-genai
 python-dotenv
+requests
+python-telegram-bot
