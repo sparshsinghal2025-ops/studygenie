@@ -56,6 +56,13 @@ def _today_ist() -> str:
     return _now_ist().strftime("%Y-%m-%d")
 
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+)
+logger = logging.getLogger("studygenie")
+
+
 class Config:
     def __init__(self) -> None:
         # Telegram
@@ -96,20 +103,14 @@ class Config:
         self.validate()
 
     def validate(self) -> None:
-    if not self.BOT_TOKEN:
-        logger.error("BOT_TOKEN is missing")
-    if not self.GOOGLE_API_KEY:
-        logger.error("GOOGLE_API_KEY is missing")
-    # Do NOT raise ValueError here
+        if not self.BOT_TOKEN:
+            logger.error("BOT_TOKEN is missing")
+        if not self.GOOGLE_API_KEY:
+            logger.error("GOOGLE_API_KEY is missing")
+        # Do NOT raise ValueError here
 
 
 config = Config()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-)
-logger = logging.getLogger("studygenie")
 
 # ============================================================================
 # DATABASE (supports both Telegram numeric ID and WhatsApp phone)
