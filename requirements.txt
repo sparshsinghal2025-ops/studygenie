@@ -2,5 +2,5 @@ flask
 flask-cors
 redis
 razorpay
-google-generativeai
+google-genai
 python-dotenv
