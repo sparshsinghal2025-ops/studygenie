@@ -1,9 +1,7 @@
 flask
-flask-cors
-redis
-razorpay
-google-genai
-python-dotenv
-requests
-python-telegram-bot
 gunicorn
+python-telegram-bot
+redis
+requests
+python-dotenv
+google-genai
