@@ -1162,26 +1162,69 @@ def health():
 
 @app.route("/api/debug/ai")
 def debug_ai():
-    results = {"primary": config.AI_PRIMARY}
+    results = {
+        "primary": config.AI_PRIMARY,
+        "groq_key_present": bool(config.GROQ_API_KEY),
+        "gemini_key_present": bool(config.GOOGLE_API_KEY),
+    }
+
+    # ---------- Test Groq ----------
     if ai.groq_client:
         t0 = time.time()
         try:
-            text = ai._call_groq("Reply with exactly: OK StudyGenie", max_tokens=20)
-            results["groq"] = {"ok": bool(text), "model": config.GROQ_MODEL, "reply": (text or "")[:100], "elapsed": round(time.time()-t0, 2)}
+            resp = ai.groq_client.chat.completions.create(
+                model=config.GROQ_MODEL,
+                messages=[{"role": "user", "content": "Reply with exactly: OK StudyGenie"}],
+                max_tokens=20,
+                temperature=0,
+                timeout=20,
+            )
+            text = (resp.choices[0].message.content or "").strip()
+            results["groq"] = {
+                "ok": bool(text),
+                "model": config.GROQ_MODEL,
+                "reply": text[:150],
+                "elapsed": round(time.time() - t0, 2),
+            }
         except Exception as e:
-            results["groq"] = {"ok": False, "error": str(e)}
+            results["groq"] = {
+                "ok": False,
+                "model": config.GROQ_MODEL,
+                "error": str(e),
+                "elapsed": round(time.time() - t0, 2),
+            }
     else:
-        results["groq"] = {"ok": False, "error": "GROQ_API_KEY missing"}
+        results["groq"] = {"ok": False, "error": "Groq client not initialized (check GROQ_API_KEY)"}
 
+    # ---------- Test Gemini ----------
     if ai.gemini_client:
         t0 = time.time()
         try:
-            text = ai._call_gemini("Reply with exactly: OK StudyGenie", max_tokens=20)
-            results["gemini"] = {"ok": bool(text), "model": config.GEMINI_MODEL, "reply": (text or "")[:100], "elapsed": round(time.time()-t0, 2)}
+            resp = ai.gemini_client.models.generate_content(
+                model=config.GEMINI_MODEL,
+                contents=["Reply with exactly: OK StudyGenie"],
+                config=genai_types.GenerateContentConfig(
+                    temperature=0,
+                    max_output_tokens=20,
+                ),
+            )
+            text = (resp.text or "").strip()
+            results["gemini"] = {
+                "ok": bool(text),
+                "model": config.GEMINI_MODEL,
+                "reply": text[:150],
+                "elapsed": round(time.time() - t0, 2),
+            }
         except Exception as e:
-            results["gemini"] = {"ok": False, "error": str(e)}
+            results["gemini"] = {
+                "ok": False,
+                "model": config.GEMINI_MODEL,
+                "error": str(e),
+                "elapsed": round(time.time() - t0, 2),
+            }
     else:
-        results["gemini"] = {"ok": False, "error": "GOOGLE_API_KEY missing"}
+        results["gemini"] = {"ok": False, "error": "Gemini client not initialized (check GOOGLE_API_KEY)"}
+
     return jsonify(results)
 
 
