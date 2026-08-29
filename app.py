@@ -75,7 +75,7 @@ class Config:
 
         self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
         # Use a widely available model by default; override via env if needed
-        self.GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
+        self.GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip()
 
         self.FREE_DAILY = int(os.getenv("FREE_DAILY_QUESTIONS", "8"))
         self.FREE_LIFETIME = int(os.getenv("FREE_LIFETIME_QUESTIONS", "25"))
