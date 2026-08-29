@@ -5,3 +5,4 @@ redis
 requests
 python-dotenv
 google-genai
+groq
