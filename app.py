@@ -74,7 +74,8 @@ class Config:
         self.REDIS_URL = (os.getenv("REDIS_URL") or os.getenv("UPSTASH_REDIS_URL") or "").strip()
 
         self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
-        self.GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        # Use a widely available model by default; override via env if needed
+        self.GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
 
         self.FREE_DAILY = int(os.getenv("FREE_DAILY_QUESTIONS", "8"))
         self.FREE_LIFETIME = int(os.getenv("FREE_LIFETIME_QUESTIONS", "25"))
@@ -583,29 +584,46 @@ class AIService:
         templates = self._templates(base, question)
         prompt = templates.get(tool, templates["general"])
 
-        for attempt in range(2):
-            try:
-                resp = self.client.models.generate_content(
-                    model=config.GEMINI_MODEL,
-                    contents=[prompt],
-                    config=genai_types.GenerateContentConfig(
-                        temperature=0.35,
-                        max_output_tokens=2800 if is_pro else 1600,
-                    ),
-                )
-                text = (resp.text or "").strip()
-                if text and db.redis:
-                    try:
-                        db.redis.setex(cache_key, config.CACHE_TTL, text)
-                    except Exception:
-                        pass
-                return text or None
-            except Exception as e:
-                logger.error("Gemini attempt %s: %s", attempt + 1, e)
-                if attempt == 0:
-                    time.sleep(0.7)
-                    continue
-                return None
+        # Prefer configured model, then safe fallbacks if model name is invalid
+        models_to_try = [config.GEMINI_MODEL]
+        for fb in ("gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-latest"):
+            if fb not in models_to_try:
+                models_to_try.append(fb)
+
+        last_err = None
+        for model_name in models_to_try:
+            for attempt in range(2):
+                try:
+                    resp = self.client.models.generate_content(
+                        model=model_name,
+                        contents=[prompt],
+                        config=genai_types.GenerateContentConfig(
+                            temperature=0.35,
+                            max_output_tokens=2800 if is_pro else 1600,
+                        ),
+                    )
+                    text = (resp.text or "").strip()
+                    if text and db.redis:
+                        try:
+                            db.redis.setex(cache_key, config.CACHE_TTL, text)
+                        except Exception:
+                            pass
+                    if text:
+                        if model_name != config.GEMINI_MODEL:
+                            logger.info("Gemini fallback model used: %s", model_name)
+                        return text
+                    last_err = "empty response"
+                except Exception as e:
+                    last_err = str(e)
+                    logger.error("Gemini model=%s attempt=%s: %s", model_name, attempt + 1, e)
+                    # Model not found / invalid → try next model immediately
+                    err_l = str(e).lower()
+                    if "not found" in err_l or "invalid" in err_l or "404" in err_l:
+                        break
+                    if attempt == 0:
+                        time.sleep(0.7)
+                        continue
+        logger.error("Gemini all attempts failed: %s", last_err)
         return None
 
     def answer_with_image(
@@ -1451,7 +1469,7 @@ async def get_app() -> Application:
         app = (
             ApplicationBuilder()
             .token(config.BOT_TOKEN)
-            .defaults(Defaults(parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True))
+            .defaults(Defaults(parse_mode=ParseMode.MARKDOWN))
             .build()
         )
         app.add_handler(CommandHandler("start", start))
@@ -2234,7 +2252,7 @@ function closeDev() {
 
 // Welcome message
 setTimeout(() => {
-  addMsg('Namaste! 👋 Main StudyGenie hoon – Sparsh Singhal ka gamified AI tutor.\\n\\nKoi bhi JEE/NEET sawaal poochho. Free plan: {{ free_daily }} questions/day & {{ free_lifetime }} lifetime.\\n\\nPro le lo for unlimited power! 🚀\\n\\n- made with love by Sparsh Singhal', 'bot');
+  addMsg('Namaste! 👋 Main StudyGenie hoon – Sparsh Singhal ka gamified AI tutor.\n\nKoi bhi JEE/NEET sawaal poochho. Free plan: {{ free_daily }} questions/day & {{ free_lifetime }} lifetime.\n\nPro le lo for unlimited power! 🚀\n\n- made with love by Sparsh Singhal', 'bot');
 }, 400);
 </script>
 </body>
