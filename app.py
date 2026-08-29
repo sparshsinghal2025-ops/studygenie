@@ -163,16 +163,21 @@ def is_rate_limited(key: str, max_calls: int = 12, window_sec: int = 60) -> bool
 
 
 def run_ai(fn, *args, **kwargs):
-    """Run AI work in the shared thread pool with a hard timeout."""
+    """Run AI work in the shared thread pool with a hard timeout.
+    Returns text on success, or a short error string starting with 'ERROR:' on failure.
+    """
     fut = _AI_POOL.submit(fn, *args, **kwargs)
     try:
-        return fut.result(timeout=_AI_TIMEOUT)
+        result = fut.result(timeout=_AI_TIMEOUT)
+        if result is None:
+            return "ERROR: Gemini returned empty response. Check GOOGLE_API_KEY and GEMINI_MODEL."
+        return result
     except FuturesTimeout:
         logger.error("AI call timed out after %ss", _AI_TIMEOUT)
-        return None
+        return f"ERROR: AI timed out after {_AI_TIMEOUT:.0f}s. Gemini API slow or blocked."
     except Exception as e:
         logger.error("AI pool error: %s", e)
-        return None
+        return f"ERROR: {e}"
 
 
 # ============================================================================
@@ -2368,6 +2373,17 @@ def web_ask():
         return jsonify(
             {"answer": "😔 Couldn't generate answer. Try again.\n\n- made with love by Sparsh Singhal"}
         )
+    if isinstance(answer, str) and answer.startswith("ERROR:"):
+        return jsonify(
+            {
+                "answer": (
+                    f"😔 AI error: {answer[6:].strip()}\n\n"
+                    "Check GOOGLE_API_KEY + GEMINI_MODEL on Render.\n"
+                    "Test: /api/debug/gemini\n\n"
+                    "- made with love by Sparsh Singhal"
+                )
+            }
+        )
 
     if not is_pro:
         db.consume_quota(uid)
@@ -2732,30 +2748,78 @@ def telegram_webhook():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
-@app.route("/api/setup")
-def setup():
-    if not config.VERCEL_URL:
-        return jsonify({"error": "VERCEL_URL missing"}), 400
-    url = f"https://{config.VERCEL_URL}/api/webhook"
-
-    async def _set():
-        application = await get_app()
-        kwargs = {"url": url}
-        if config.WEBHOOK_SECRET:
-            kwargs["secret_token"] = config.WEBHOOK_SECRET
-        await application.bot.set_webhook(**kwargs)
-        return url
-
+@app.route("/api/debug/gemini")
+def debug_gemini():
+    """Quick Gemini connectivity test (no thread pool)."""
+    if not config.GOOGLE_API_KEY:
+        return jsonify({"ok": False, "error": "GOOGLE_API_KEY missing"}), 400
+    if not ai.client:
+        return jsonify({"ok": False, "error": "Gemini client not initialized"}), 500
+    model = config.GEMINI_MODEL
+    t0 = time.time()
     try:
-        u = asyncio.run(_set())
+        resp = ai.client.models.generate_content(
+            model=model,
+            contents=["Reply with exactly: OK StudyGenie"],
+            config=genai_types.GenerateContentConfig(
+                temperature=0,
+                max_output_tokens=32,
+            ),
+        )
+        text = (resp.text or "").strip()
         return jsonify(
             {
-                "ok": True,
-                "telegram_webhook": u,
-                "whatsapp_webhook": f"https://{config.VERCEL_URL}/api/whatsapp",
-                "creator": "Sparsh Singhal",
+                "ok": bool(text),
+                "model": model,
+                "reply": text[:200],
+                "elapsed_sec": round(time.time() - t0, 2),
             }
         )
+    except Exception as e:
+        return jsonify(
+            {
+                "ok": False,
+                "model": model,
+                "error": str(e),
+                "elapsed_sec": round(time.time() - t0, 2),
+            }
+        ), 500
+
+
+@app.route("/api/setup")
+def setup():
+    """Register Telegram webhook via HTTP API (fast, no asyncio Application init)."""
+    if not config.VERCEL_URL:
+        return jsonify({"error": "VERCEL_URL missing"}), 400
+    if not config.BOT_TOKEN:
+        return jsonify({"error": "BOT_TOKEN missing"}), 400
+
+    webhook_url = f"https://{config.VERCEL_URL.rstrip('/')}/api/webhook"
+    api = f"https://api.telegram.org/bot{config.BOT_TOKEN}/setWebhook"
+    payload = {"url": webhook_url}
+    if config.WEBHOOK_SECRET:
+        payload["secret_token"] = config.WEBHOOK_SECRET
+
+    try:
+        r = requests.post(api, json=payload, timeout=20)
+        data = r.json() if r.content else {}
+        if r.status_code == 200 and data.get("ok"):
+            return jsonify(
+                {
+                    "ok": True,
+                    "telegram_webhook": webhook_url,
+                    "whatsapp_webhook": f"https://{config.VERCEL_URL.rstrip('/')}/api/whatsapp",
+                    "telegram_response": data,
+                    "creator": "Sparsh Singhal",
+                }
+            )
+        return jsonify(
+            {
+                "ok": False,
+                "error": data.get("description") or r.text,
+                "status_code": r.status_code,
+            }
+        ), 400
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
