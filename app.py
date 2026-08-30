@@ -5,7 +5,7 @@ Telegram + WhatsApp + Web Dashboard
 Production-ready (thousands scale) for Railway / Render / Fly / VPS
 
 Author & Creator: Sparsh Singhal
-Updated: Groq (Primary) + Gemini (Fallback) | All Exams Support
+Updated: Groq (Primary) + Gemini (Fallback) | All Exams Support | Robust Dual AI
 """
 
 from __future__ import annotations
@@ -510,335 +510,221 @@ class AIService:
             "resume": f"{base}Create or improve a clean, modern student resume/CV (ATS friendly).\n\nDetails: {question}",
             "youtube": f"{base}YouTube-style summary: key points + important concepts + 5 revision questions.\n\nTopic: {question}",
             "career": f"{base}Give practical career guidance for Indian students (all streams).\n\nQuery: {question}",
-            "tips": f"{base}Sparsh Singhal Direct Tips mode: Sharp study tips, CODE strategy, exam psychology and motivation.\n\nTopic: {question}",
-            "voice": f"{base}Give a short, natural spoken-style answer easy to read aloud.\n\n{question}",
-            "ocr": f"{base}Image/OCR mode: First read the question from image accurately, then solve completely.\n\nExtra text: {question}",
+            "tips": f"{base}Give Sparsh Singhal style powerful study tips and motivation.\n\nTopic: {question}",
+            "ocr": f"{base}Read the image carefully and solve / explain everything written or shown.\n\nExtra instruction: {question}",
         }
 
-    def _call_groq(self, prompt: str, max_tokens: int = 1800) -> Optional[str]:
+    def _call_groq(self, prompt: str, max_tokens: int = 1500) -> Optional[str]:
         if not self.groq_client:
             return None
         try:
             resp = self.groq_client.chat.completions.create(
                 model=config.GROQ_MODEL,
                 messages=[
-                    {"role": "system", "content": "You are StudyGenie by Sparsh Singhal – a helpful, encouraging AI tutor for all Indian exams. Reply in natural Hinglish."},
+                    {"role": "system", "content": "You are StudyGenie, a helpful Indian exam tutor. Reply in Hinglish."},
                     {"role": "user", "content": prompt},
                 ],
-                temperature=0.35,
+                temperature=0.7,
                 max_tokens=max_tokens,
-                timeout=45,
             )
             text = (resp.choices[0].message.content or "").strip()
             return text if text else None
         except Exception as e:
-            logger.warning("Groq error: %s", e)
+            logger.error("Groq error: %s", e)
             return None
 
-    def _call_gemini(self, prompt: str, max_tokens: int = 1800) -> Optional[str]:
+    def _call_gemini(self, prompt: str, max_tokens: int = 1500) -> Optional[str]:
         if not self.gemini_client:
             return None
-        models_to_try = [config.GEMINI_MODEL, "gemini-2.0-flash", "gemini-1.5-flash"]
-        for model_name in models_to_try:
-            try:
-                resp = self.gemini_client.models.generate_content(
-                    model=model_name,
-                    contents=[prompt],
-                    config=genai_types.GenerateContentConfig(
-                        temperature=0.35,
-                        max_output_tokens=max_tokens,
-                    ),
-                )
-                text = (resp.text or "").strip()
-                if text:
-                    if model_name != config.GEMINI_MODEL:
-                        logger.info("Gemini fallback model used: %s", model_name)
-                    return text
-            except Exception as e:
-                logger.warning("Gemini %s error: %s", model_name, e)
-                continue
-        return None
+        try:
+            resp = self.gemini_client.models.generate_content(
+                model=config.GEMINI_MODEL,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    temperature=0.7,
+                    max_output_tokens=max_tokens,
+                ),
+            )
+            text = (resp.text or "").strip()
+            return text if text else None
+        except Exception as e:
+            logger.error("Gemini error: %s", e)
+            return None
 
     def answer(self, question: str, tool: str = "general", is_pro: bool = False) -> Optional[str]:
-        if not self.groq_client and not self.gemini_client:
-            return "😔 AI service temporarily unavailable. Please try again in a minute.\n\n_ - made with love by Sparsh Singhal _"
+        if not question or not question.strip():
+            return "Please ask a valid question."
 
-        cache_key = f"ai:{tool}:{hashlib.md5(question.lower().encode()).hexdigest()}"
+        base = self._base_prompt(is_pro)
+        templates = self._templates(base, question.strip())
+        prompt = templates.get(tool, templates["general"])
+
+        # Cache key
+        cache_key = None
         if db.redis:
             try:
+                cache_key = f"cache:{hashlib.md5((tool + question + str(is_pro)).encode()).hexdigest()}"
                 cached = db.redis.get(cache_key)
                 if cached:
                     return cached
             except Exception:
                 pass
 
-        base = self._base_prompt(is_pro)
-        templates = self._templates(base, question)
-        prompt = templates.get(tool, templates["general"])
-        max_tokens = 2800 if is_pro else 1600
+        max_tokens = 1800 if is_pro else 1400
 
-        providers = [("groq", self._call_groq), ("gemini", self._call_gemini)] if config.AI_PRIMARY == "groq" else [("gemini", self._call_gemini), ("groq", self._call_groq)]
+        providers = []
+        if config.AI_PRIMARY == "groq":
+            providers = [("groq", self._call_groq), ("gemini", self._call_gemini)]
+        else:
+            providers = [("gemini", self._call_gemini), ("groq", self._call_groq)]
 
         text = None
         for name, fn in providers:
             text = fn(prompt, max_tokens=max_tokens)
             if text:
-                logger.info("AI success via %s | tool=%s", name, tool)
+                logger.info("AI answered via %s", name)
                 break
 
         if not text:
-            return "😔 Thoda technical issue aa gaya. Please 10-15 second baad try karo.\n\n_ - made with love by Sparsh Singhal _"
+            return "😔 Sorry, both AI providers failed right now. Please try again in a few seconds."
 
-        if db.redis and text:
+        if cache_key and db.redis:
             try:
                 db.redis.setex(cache_key, config.CACHE_TTL, text)
             except Exception:
                 pass
+
         return text
 
-    def answer_with_image(self, image_bytes: bytes, mime_type: str = "image/jpeg", question: str = "", tool: str = "ocr", is_pro: bool = False) -> Optional[str]:
-        if not is_pro:
-            return f"📷 Image Doubt Scan is Pro-only.\n\nUpgrade for ₹{config.PRO_PRICE_INR}/30 days.\n\n- made with love by Sparsh Singhal"
-
+    def answer_with_image(self, img_bytes: bytes, mime: str, question: str = "", tool: str = "ocr", is_pro: bool = False) -> Optional[str]:
         if not self.gemini_client:
-            return "📷 Image feature temporarily unavailable. Please try again later.\n\n_ - made with love by Sparsh Singhal _"
+            return "Image understanding is currently unavailable. Please try text question."
 
         base = self._base_prompt(is_pro)
-        extra = question.strip() or "Solve the question shown in the image completely."
-        prompt = f"{base}You can SEE the image. Do accurate OCR first, then solve step-by-step.\n\nUser note: {extra}"
+        prompt = f"{base}Look at the image carefully and solve / explain everything. Extra: {question or 'Explain the full content'}"
 
         try:
-            part = genai_types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
             resp = self.gemini_client.models.generate_content(
                 model=config.GEMINI_MODEL,
-                contents=[part, prompt],
-                config=genai_types.GenerateContentConfig(temperature=0.3, max_output_tokens=3000),
+                contents=[
+                    genai_types.Part.from_bytes(data=img_bytes, mime_type=mime or "image/jpeg"),
+                    prompt,
+                ],
+                config=genai_types.GenerateContentConfig(
+                    temperature=0.4,
+                    max_output_tokens=1800,
+                ),
             )
             text = (resp.text or "").strip()
-            if text:
-                return text
+            return text if text else None
         except Exception as e:
             logger.error("Gemini vision error: %s", e)
-
-        return self.answer(f"[Image OCR failed] {extra}", tool="ocr", is_pro=is_pro)
+            return None
 
 
 ai = AIService()
 
 # ============================================================================
-# WHATSAPP
+# TELEGRAM HELPERS
 # ============================================================================
 
-def send_whatsapp_message(to: str, text: str) -> bool:
-    if not config.WHATSAPP_TOKEN or not config.WHATSAPP_PHONE_NUMBER_ID:
-        return False
-    url = f"https://graph.facebook.com/{config.WHATSAPP_API_VERSION}/{config.WHATSAPP_PHONE_NUMBER_ID}/messages"
-    headers = {"Authorization": f"Bearer {config.WHATSAPP_TOKEN}", "Content-Type": "application/json"}
-    payload = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"body": text[:4096]}}
+async def typing(update: Update) -> None:
     try:
-        r = requests.post(url, headers=headers, json=payload, timeout=15)
-        return r.status_code in (200, 201)
-    except Exception as e:
-        logger.error("WhatsApp error: %s", e)
-        return False
+        if update.effective_chat:
+            await update.effective_chat.send_action(ChatAction.TYPING)
+    except Exception:
+        pass
 
 
-def process_whatsapp_message(from_number: str, text: str, profile_name: str = "") -> None:
-    uid = from_number
-    if is_rate_limited(f"wa:{uid}", max_calls=15, window_sec=60):
-        send_whatsapp_message(from_number, "Too many messages. Please wait a minute.\n\n_ - made with love by Sparsh Singhal _")
+async def reply(update: Update, text: str, reply_markup=None) -> None:
+    try:
+        if update.callback_query:
+            await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+        elif update.message:
+            await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=ParseMode.MARKDOWN)
+    except Exception:
+        try:
+            if update.message:
+                await update.message.reply_text(text, reply_markup=reply_markup)
+        except Exception:
+            pass
+
+
+def main_menu(is_pro: bool = False) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton("📚 Ask Doubt", callback_data="menu_ask"),
+         InlineKeyboardButton("🛠 Tools", callback_data="menu_tools")],
+        [InlineKeyboardButton("📊 Progress", callback_data="menu_progress"),
+         InlineKeyboardButton("🏆 Leaderboard", callback_data="menu_lb")],
+        [InlineKeyboardButton("🔥 Streak", callback_data="menu_streak")],
+    ]
+    if is_pro:
+        rows.append([InlineKeyboardButton("👑 You are PRO", callback_data="menu_prostatus")])
+    else:
+        rows.append([InlineKeyboardButton(f"💎 Upgrade ₹{config.PRO_PRICE_INR}", callback_data="menu_upgrade")])
+    rows.append([InlineKeyboardButton("👨‍💻 About Sparsh", callback_data="menu_about")])
+    return InlineKeyboardMarkup(rows)
+
+
+def tools_menu(is_pro: bool = False) -> InlineKeyboardMarkup:
+    tools = [
+        ("explain", "📖 Explain"), ("solve", "🧮 Solve"), ("notes", "📝 Notes"),
+        ("pyq", "📜 PYQ"), ("formula", "📐 Formula"), ("planner", "📅 Planner"),
+        ("mock", "🎯 Mock"),
+    ]
+    if is_pro:
+        tools += [
+            ("roast", "🔥 Roast"), ("mindmap", "🧠 Mindmap"), ("mcq", "❓ MCQ"),
+            ("career", "🚀 Career"), ("tips", "💡 Tips"),
+        ]
+    rows = []
+    for i in range(0, len(tools), 2):
+        row = [InlineKeyboardButton(tools[i][1], callback_data=f"tool_{tools[i][0]}")]
+        if i + 1 < len(tools):
+            row.append(InlineKeyboardButton(tools[i+1][1], callback_data=f"tool_{tools[i+1][0]}"))
+        rows.append(row)
+    rows.append([InlineKeyboardButton("« Back", callback_data="menu_main")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def process_question(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, tool: str = "general") -> None:
+    user = update.effective_user
+    if not user:
         return
-
-    udata = db.ensure_user(uid, full_name=profile_name or "Student", platform="whatsapp")
+    uid = user.id
     is_pro = db.is_pro(uid)
-    lower = text.lower().strip()
 
-    if lower in ("hi", "hello", "start", "menu", "/start", "/menu"):
-        streak = db.update_streak(uid)
-        _, quota = db.check_quota(uid)
-        msg = (
-            f"🎓 *Welcome to StudyGenie by Sparsh Singhal!*\n\n"
-            f"Namaste {profile_name or 'Champion'} 👋\n\n"
-            f"All-in-one AI tutor for Boards • JEE • NEET • GATE • UPSC • SSC • Banking • CA & more.\n\n"
-            f"⭐ Level {udata.get('level', 1)} | XP {udata.get('xp', 0)}\n"
-            f"🔥 Streak: {streak['current']} days\n\n"
-        )
-        if not is_pro:
-            msg += f"🆓 Free: *{quota['daily_left']}* left today | *{quota['lifetime_left']}* lifetime\n\n"
-        msg += "Just type any question!\n\n_ - made with love by Sparsh Singhal _"
-        send_whatsapp_message(from_number, msg)
-        return
-
-    if "upgrade" in lower or "pro" in lower:
-        send_whatsapp_message(
-            from_number,
-            f"💎 *Unlock Pro – ₹{config.PRO_PRICE_INR}/30 days*\n\n"
-            f"Unlimited doubts + all 28 Pro tools\n\n"
-            f"Pay: https://{config.VERCEL_URL}/pay?uid={uid}\n\n"
-            f"_ - made with love by Sparsh Singhal _"
-        )
+    pro_only = {"roast", "ncert", "mindmap", "important", "diagram", "derivation", "numerical", "mcq", "essay", "resume", "youtube", "career", "ocr", "mock", "tips"}
+    if tool in pro_only and not is_pro:
+        await reply(update, f"🔒 This tool is *Pro-only*.\n\nUpgrade for ₹{config.PRO_PRICE_INR}/30 days.",
+                    InlineKeyboardMarkup([[InlineKeyboardButton(f"💎 Upgrade ₹{config.PRO_PRICE_INR}", callback_data="menu_upgrade")]]))
         return
 
     if not is_pro:
         can, quota = db.check_quota(uid)
         if not can:
-            send_whatsapp_message(from_number, f"❌ Quota finished!\n\nUpgrade: https://{config.VERCEL_URL}/pay?uid={uid}\n\n_ - made with love by Sparsh Singhal _")
+            await reply(update, f"❌ Free quota finished!\n\nDaily left: {quota['daily_left']}\nLifetime left: {quota['lifetime_left']}\n\nUpgrade to Pro 💎")
             return
 
-    # Simple tool detection
-    tool = "general"
-    if lower.startswith(("explain", "what is", "why", "how")): tool = "explain"
-    elif lower.startswith(("solve", "calculate", "find")): tool = "solve"
-    elif lower.startswith(("notes", "summarize")): tool = "notes"
-    elif lower.startswith(("plan", "schedule")): tool = "planner"
-    elif lower.startswith(("roast", "savage")): tool = "roast"
-    elif lower.startswith(("mindmap", "mind map")): tool = "mindmap"
-    elif lower.startswith(("derivation", "derive")): tool = "derivation"
-    elif lower.startswith(("numerical",)): tool = "numerical"
-    elif lower.startswith(("mcq", "quiz")): tool = "mcq"
-    elif lower.startswith(("essay", "letter")): tool = "essay"
-    elif lower.startswith(("resume", "cv")): tool = "resume"
-    elif lower.startswith(("career",)): tool = "career"
-    elif lower.startswith(("tips", "sparsh")): tool = "tips"
-    elif lower.startswith(("ncert",)): tool = "ncert"
-
-    pro_only = {"roast", "ncert", "mindmap", "important", "diagram", "derivation", "numerical", "mcq", "essay", "resume", "youtube", "career", "voice", "ocr", "mock", "tips"}
-    if tool in pro_only and not is_pro:
-        send_whatsapp_message(from_number, f"🔒 *{tool.title()}* is Pro-only.\n\nUpgrade: https://{config.VERCEL_URL}/pay?uid={uid}\n\n_ - made with love by Sparsh Singhal _")
-        return
-
+    await typing(update)
     start = time.time()
     answer = run_ai(ai.answer, text, tool, is_pro=is_pro)
     elapsed = time.time() - start
 
     if not answer or str(answer).startswith("ERROR:"):
-        send_whatsapp_message(from_number, "😔 Couldn't generate answer. Please try again.\n\n_ - made with love by Sparsh Singhal _")
+        await reply(update, "😔 Couldn't generate answer right now. Please try again.")
         return
 
     if not is_pro:
         db.consume_quota(uid)
 
+    udata = db.ensure_user(uid, user.username or "", user.full_name or "Student")
     xp_gain = config.XP_QUESTION * (2 if is_pro else 1)
     xp, level = db.add_xp(uid, xp_gain)
     questions = int(udata.get("questions_asked", 0)) + 1
     udata["questions_asked"] = str(questions)
     db.save_user(uid, udata)
-
-    if questions == 1: db.add_badge(uid, "First Step 🐣")
-    if questions >= 50: db.add_badge(uid, "Knowledge Seeker 📚")
-    if level >= 5: db.add_badge(uid, "Rising Star ⭐")
-
-    footer = f"\n\n━━━━━━━━━━━━━━━\n⚡ {elapsed:.1f}s | ⭐ +{xp_gain} XP{' (2× Pro)' if is_pro else ''} | Level {level}\n_ - made with love by Sparsh Singhal _"
-    full = answer + footer
-    if len(full) <= 4000:
-        send_whatsapp_message(from_number, full)
-    else:
-        for i in range(0, len(full), 3900):
-            send_whatsapp_message(from_number, full[i:i+3900])
-
-
-# ============================================================================
-# TELEGRAM HELPERS
-# ============================================================================
-
-def main_menu(is_pro: bool = False) -> InlineKeyboardMarkup:
-    rows = [
-        [InlineKeyboardButton("📚 Ask", callback_data="menu_ask"), InlineKeyboardButton("🎯 Quiz", callback_data="menu_quiz")],
-        [InlineKeyboardButton("🛠 Tools", callback_data="menu_tools"), InlineKeyboardButton("📊 Progress", callback_data="menu_progress")],
-        [InlineKeyboardButton("🏆 Leaderboard", callback_data="menu_lb"), InlineKeyboardButton("🔥 Streak", callback_data="menu_streak")],
-        [InlineKeyboardButton("🎮 Daily Quest", callback_data="menu_quest"), InlineKeyboardButton("🏅 Badges", callback_data="menu_badges")],
-    ]
-    if not is_pro:
-        rows.append([InlineKeyboardButton(f"💎 Upgrade to Pro – ₹{config.PRO_PRICE_INR}/mo", callback_data="menu_upgrade")])
-    else:
-        rows.append([InlineKeyboardButton("👑 Pro Active", callback_data="menu_prostatus")])
-    rows.append([InlineKeyboardButton("👨‍💻 About Sparsh Singhal", callback_data="menu_about")])
-    return InlineKeyboardMarkup(rows)
-
-
-def tools_menu(is_pro: bool) -> InlineKeyboardMarkup:
-    rows = [
-        [InlineKeyboardButton("💡 Explain", callback_data="tool_explain"), InlineKeyboardButton("🧮 Solve", callback_data="tool_solve")],
-        [InlineKeyboardButton("📝 Notes", callback_data="tool_notes"), InlineKeyboardButton("📋 PYQ", callback_data="tool_pyq")],
-        [InlineKeyboardButton("📐 Formulas", callback_data="tool_formula"), InlineKeyboardButton("📅 Planner", callback_data="tool_planner")],
-    ]
-    if is_pro:
-        rows.extend([
-            [InlineKeyboardButton("🔥 Savage Roast", callback_data="tool_roast"), InlineKeyboardButton("📖 NCERT Mode", callback_data="tool_ncert")],
-            [InlineKeyboardButton("🧠 Mind Map", callback_data="tool_mindmap"), InlineKeyboardButton("⭐ Important Qs", callback_data="tool_important")],
-            [InlineKeyboardButton("🖼 Diagram", callback_data="tool_diagram"), InlineKeyboardButton("📐 Derivation", callback_data="tool_derivation")],
-            [InlineKeyboardButton("🔢 Numerical", callback_data="tool_numerical"), InlineKeyboardButton("🧪 MCQ Quiz", callback_data="tool_mcq")],
-            [InlineKeyboardButton("📝 Essay/Letter", callback_data="tool_essay"), InlineKeyboardButton("📄 Resume", callback_data="tool_resume")],
-            [InlineKeyboardButton("🎬 YT Summary", callback_data="tool_youtube"), InlineKeyboardButton("🎯 Career Guide", callback_data="tool_career")],
-            [InlineKeyboardButton("🎤 Voice Style", callback_data="tool_voice"), InlineKeyboardButton("📷 Image/OCR", callback_data="tool_ocr")],
-            [InlineKeyboardButton("🧪 Mock Test", callback_data="tool_mock"), InlineKeyboardButton("💡 Sparsh Tips", callback_data="tool_tips")],
-        ])
-    else:
-        rows.append([InlineKeyboardButton("🔒 Unlock 20+ Pro Tools", callback_data="menu_upgrade")])
-    rows.append([InlineKeyboardButton("🔙 Back", callback_data="menu_main")])
-    return InlineKeyboardMarkup(rows)
-
-
-async def reply(update: Update, text: str, markup=None) -> None:
-    if update.callback_query:
-        try:
-            await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
-        except Exception:
-            await update.callback_query.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
-    elif update.message:
-        await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.MARKDOWN)
-
-
-async def typing(update: Update) -> None:
-    if update.effective_chat:
-        try:
-            await update.effective_chat.send_action(ChatAction.TYPING)
-        except Exception:
-            pass
-
-
-async def process_question(update: Update, context: ContextTypes.DEFAULT_TYPE, q: str, tool: str = "general") -> None:
-    user = update.effective_user
-    if not user:
-        return
-    uid = user.id
-    udata = db.ensure_user(uid, user.username or "", user.full_name or "Student", platform="telegram")
-    is_pro = db.is_pro(uid)
-
-    pro_only = {"roast", "ncert", "mindmap", "important", "diagram", "derivation", "numerical", "mcq", "essay", "resume", "youtube", "career", "voice", "ocr", "mock", "tips"}
-    if tool in pro_only and not is_pro:
-        await reply(update, f"🔒 *{tool.title()}* is Pro-only.\n\nUpgrade for ₹{config.PRO_PRICE_INR}/30 days.\n\n_ - made with love by Sparsh Singhal _",
-                    InlineKeyboardMarkup([[InlineKeyboardButton(f"💎 Upgrade ₹{config.PRO_PRICE_INR}", callback_data="menu_upgrade")]]))
-        return
-
-    if not is_pro:
-        can, _ = db.check_quota(uid)
-        if not can:
-            await reply(update, f"❌ *Quota finished!*\n\nUpgrade to Pro for unlimited access.\n\n_ - made with love by Sparsh Singhal _",
-                        InlineKeyboardMarkup([[InlineKeyboardButton(f"💎 Upgrade ₹{config.PRO_PRICE_INR}", callback_data="menu_upgrade")]]))
-            return
-
-    await typing(update)
-    start = time.time()
-    answer = run_ai(ai.answer, q, tool, is_pro=is_pro)
-    elapsed = time.time() - start
-
-    if not answer or str(answer).startswith("ERROR:"):
-        await reply(update, "😔 Couldn't generate answer. Please try again in a few seconds.\n\n_ - made with love by Sparsh Singhal _")
-        return
-
-    if not is_pro:
-        db.consume_quota(uid)
-
-    xp_gain = config.XP_QUESTION * (2 if is_pro else 1)
-    xp, level = db.add_xp(uid, xp_gain)
-    questions = int(udata.get("questions_asked", 0)) + 1
-    udata["questions_asked"] = str(questions)
-    db.save_user(uid, udata)
-
-    if questions == 1: db.add_badge(uid, "First Step 🐣")
-    if questions >= 50: db.add_badge(uid, "Knowledge Seeker 📚")
-    if level >= 5: db.add_badge(uid, "Rising Star ⭐")
+    db.update_streak(uid)
 
     footer = f"\n\n━━━━━━━━━━━━━━━\n⚡ {elapsed:.1f}s | ⭐ +{xp_gain} XP{' (2× Pro)' if is_pro else ''} | Level {level}\n_ - made with love by Sparsh Singhal _"
     full = answer + footer
@@ -852,69 +738,58 @@ async def process_question(update: Update, context: ContextTypes.DEFAULT_TYPE, q
                 await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
 
 
-# ====================== TELEGRAM HANDLERS ======================
+# ============================================================================
+# TELEGRAM HANDLERS
+# ============================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    if not user: return
+    if not user:
+        return
     db.ensure_user(user.id, user.username or "", user.full_name or "Student")
     is_pro = db.is_pro(user.id)
-    _, quota = db.check_quota(user.id)
-    text = (
-        f"🎓 *Welcome to StudyGenie by Sparsh Singhal*, {user.first_name or 'Champion'}!\n\n"
-        "All-in-one gamified AI tutor for **Boards • JEE • NEET • GATE • UPSC • SSC • Banking • CA • CUET** and more.\n\n"
+    await reply(update,
+        f"🎓 *Welcome to StudyGenie!*\n\n"
+        f"Hi {user.first_name}! Main aapka AI tutor hoon – Class 6 se lekar UPSC/JEE/NEET/GATE tak sab exams cover karta hoon.\n\n"
+        f"Just type your question or use the menu below 👇\n\n"
+        f"_ - made with love by Sparsh Singhal _",
+        main_menu(is_pro)
     )
-    if not is_pro:
-        text += f"🆓 Free: *{quota['daily_left']}* left today | *{quota['lifetime_left']}* lifetime\n\n"
-    text += "Created with ❤️ by *Sparsh Singhal*\n\nJust type any question or open the menu 👇"
-    await reply(update, text, main_menu(is_pro))
 
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    if not user: return
-    udata = db.ensure_user(user.id, user.username or "", user.full_name or "Student")
-    streak = db.update_streak(user.id)
-    is_pro = db.is_pro(user.id)
-    _, quota = db.check_quota(user.id)
-    text = (
-        f"🎓 *StudyGenie by Sparsh Singhal*\n\n"
-        f"👤 {udata.get('full_name')}\n"
-        f"⭐ Level {udata.get('level', 1)} | XP {udata.get('xp', 0)}\n"
-        f"🔥 Streak {streak['current']} days (🛡 {streak['shields']})\n"
-    )
-    if is_pro:
-        text += "\n👑 *PRO ACTIVE*\n"
-    else:
-        text += f"\n❓ Left today: {quota['daily_left']} | Lifetime: {quota['lifetime_left']}\n"
-    text += "\n*Choose:*\n\n_ - made with love by Sparsh Singhal _"
-    await reply(update, text, main_menu(is_pro))
+    is_pro = db.is_pro(user.id) if user else False
+    await reply(update, "🏠 *Main Menu*", main_menu(is_pro))
 
 
 async def free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if not update.message or not update.message.text: return
+    if not update.message or not update.message.text:
+        return
     text = update.message.text.strip()
-    lower = text.lower()
-    selected = db.pop_tool(update.effective_user.id) if update.effective_user else None
-    if not selected and context.user_data:
-        selected = context.user_data.pop("selected_tool", None)
+    if not text:
+        return
 
-    tool = selected or "general"
-    if not selected:
-        if lower.startswith(("explain", "what is", "why", "how")): tool = "explain"
-        elif lower.startswith(("solve", "calculate", "find")): tool = "solve"
-        elif lower.startswith(("notes", "summarize")): tool = "notes"
-        elif lower.startswith(("plan", "schedule")): tool = "planner"
-        elif lower.startswith(("roast", "savage")): tool = "roast"
-        elif lower.startswith(("mindmap", "mind map")): tool = "mindmap"
-        elif lower.startswith(("derivation", "derive")): tool = "derivation"
-        elif lower.startswith(("numerical",)): tool = "numerical"
-        elif lower.startswith(("mcq", "quiz")): tool = "mcq"
-        elif lower.startswith(("essay", "letter")): tool = "essay"
-        elif lower.startswith(("resume", "cv")): tool = "resume"
-        elif lower.startswith(("career",)): tool = "career"
-        elif lower.startswith(("tips", "sparsh")): tool = "tips"
-        elif lower.startswith(("ncert",)): tool = "ncert"
+    uid = update.effective_user.id if update.effective_user else 0
+    tool = db.pop_tool(uid) or "general"
+
+    # Simple keyword detection
+    lower = text.lower()
+    if lower.startswith(("explain", "samjhao")): tool = "explain"
+    elif lower.startswith(("solve", "hal")): tool = "solve"
+    elif lower.startswith(("notes", "note")): tool = "notes"
+    elif lower.startswith(("pyq",)): tool = "pyq"
+    elif lower.startswith(("formula",)): tool = "formula"
+    elif lower.startswith(("plan", "planner")): tool = "planner"
+    elif lower.startswith(("mock", "test")): tool = "mock"
+    elif lower.startswith(("roast",)): tool = "roast"
+    elif lower.startswith(("mindmap", "mind map")): tool = "mindmap"
+    elif lower.startswith(("mcq", "quiz")): tool = "mcq"
+    elif lower.startswith(("essay", "letter")): tool = "essay"
+    elif lower.startswith(("resume", "cv")): tool = "resume"
+    elif lower.startswith(("career",)): tool = "career"
+    elif lower.startswith(("tips", "sparsh")): tool = "tips"
+    elif lower.startswith(("ncert",)): tool = "ncert"
 
     await process_question(update, context, text, tool)
 
@@ -965,7 +840,7 @@ async def upgrade(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     uid = user.id if user else 0
     await reply(update,
         f"💎 *Unlock StudyGenie Pro – ₹{config.PRO_PRICE_INR}/30 days*\n\n"
-        "All 28 Pro features unlocked:\n"
+        "All Pro features unlocked:\n"
         "• Unlimited doubts\n• Savage Roast • NCERT • Mind Maps\n"
         "• Diagrams • Derivations • Numerical Solver\n"
         "• MCQ + Mock Tests • Essay/Resume\n"
@@ -1105,6 +980,429 @@ async def get_app() -> Application:
 
 
 # ============================================================================
+# WHATSAPP
+# ============================================================================
+
+def process_whatsapp_message(from_number: str, text: str, profile_name: str = "") -> None:
+    uid = f"wa:{from_number}"
+    db.ensure_user(uid, full_name=profile_name or "WhatsApp Student", platform="whatsapp")
+    is_pro = db.is_pro(uid)
+
+    if not is_pro:
+        can, _ = db.check_quota(uid)
+        if not can:
+            return
+
+    answer = run_ai(ai.answer, text, "general", is_pro=is_pro)
+    if not answer or str(answer).startswith("ERROR:"):
+        return
+
+    if not is_pro:
+        db.consume_quota(uid)
+
+    db.add_xp(uid, config.XP_QUESTION * (2 if is_pro else 1))
+
+    # Send via WhatsApp Cloud API
+    if config.WHATSAPP_TOKEN and config.WHATSAPP_PHONE_NUMBER_ID:
+        try:
+            url = f"https://graph.facebook.com/{config.WHATSAPP_API_VERSION}/{config.WHATSAPP_PHONE_NUMBER_ID}/messages"
+            headers = {"Authorization": f"Bearer {config.WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+            payload = {
+                "messaging_product": "whatsapp",
+                "to": from_number,
+                "type": "text",
+                "text": {"body": answer[:4000]}
+            }
+            requests.post(url, json=payload, headers=headers, timeout=15)
+        except Exception as e:
+            logger.error("WhatsApp send error: %s", e)
+
+
+# ============================================================================
+# FRONTEND
+# ============================================================================
+
+FRONTEND_HTML = r"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyGenie by Sparsh Singhal</title>
+<style>
+  :root {
+    --bg: #0b1220;
+    --card: #111827;
+    --accent: #22d3ee;
+    --accent2: #a78bfa;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --border: rgba(255,255,255,0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  header {
+    background: linear-gradient(90deg, #0f172a, #1e1b4b);
+    padding: 1rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  .logo { font-size: 1.4rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem; }
+  .logo span { color: var(--accent); }
+  .stats { font-size: 0.85rem; color: var(--muted); display: flex; gap: 1.2rem; }
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    max-width: 1400px;
+    margin: 0 auto;
+    width: 100%;
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+  }
+  .sidebar {
+    background: var(--card);
+    border-right: 1px solid var(--border);
+    padding: 1.5rem 1rem;
+    overflow-y: auto;
+  }
+  .sidebar h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.8rem; }
+  .tool-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    padding: 0.6rem 0.9rem;
+    border-radius: 8px;
+    margin-bottom: 0.3rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+    transition: 0.15s;
+  }
+  .tool-btn:hover, .tool-btn.active {
+    background: rgba(34,211,238,0.12);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .chat-area {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 70px);
+  }
+  .messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.2rem;
+  }
+  .msg {
+    max-width: 85%;
+    padding: 1rem 1.2rem;
+    border-radius: 16px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .msg.user {
+    align-self: flex-end;
+    background: linear-gradient(135deg, #0891b2, #0e7490);
+    border-bottom-right-radius: 4px;
+  }
+  .msg.bot {
+    align-self: flex-start;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-bottom-left-radius: 4px;
+  }
+  .msg .meta {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-top: 0.6rem;
+  }
+  .input-area {
+    padding: 1rem 1.5rem 1.5rem;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+  }
+  .input-row {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-end;
+  }
+  textarea {
+    flex: 1;
+    background: #0f172a;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text);
+    padding: 0.9rem 1rem;
+    resize: none;
+    font-size: 1rem;
+    min-height: 52px;
+    max-height: 140px;
+    outline: none;
+  }
+  textarea:focus { border-color: var(--accent); }
+  button.send {
+    background: var(--accent);
+    color: #0b1220;
+    border: none;
+    border-radius: 12px;
+    padding: 0 1.4rem;
+    height: 52px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: 0.15s;
+  }
+  button.send:hover { background: #67e8f9; }
+  button.send:disabled { opacity: 0.5; cursor: not-allowed; }
+  .tools-bar {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .tools-bar select, .tools-bar button {
+    background: #0f172a;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 0.4rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+  }
+  .welcome {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--muted);
+  }
+  .welcome h2 { color: var(--text); margin-bottom: 0.5rem; }
+  .pro-badge {
+    background: linear-gradient(90deg, #a78bfa, #ec4899);
+    color: white;
+    font-size: 0.7rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    margin-left: 0.4rem;
+  }
+  .leaderboard {
+    margin-top: 2rem;
+  }
+  .lb-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.45rem 0;
+    font-size: 0.9rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .loading { opacity: 0.7; font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">🎓 Study<span>Genie</span></div>
+  <div class="stats">
+    <span id="xp-display">⭐ 0 XP</span>
+    <span id="level-display">Level 1</span>
+    <span id="quota-display">Free</span>
+  </div>
+</header>
+
+<main>
+  <aside class="sidebar">
+    <h3>Tools</h3>
+    <button class="tool-btn active" data-tool="general">💬 General Ask</button>
+    <button class="tool-btn" data-tool="explain">📖 Explain</button>
+    <button class="tool-btn" data-tool="solve">🧮 Solve</button>
+    <button class="tool-btn" data-tool="notes">📝 Notes</button>
+    <button class="tool-btn" data-tool="pyq">📜 PYQ</button>
+    <button class="tool-btn" data-tool="formula">📐 Formula</button>
+    <button class="tool-btn" data-tool="planner">📅 Planner</button>
+    <button class="tool-btn" data-tool="mock">🎯 Mock Test</button>
+    <button class="tool-btn" data-tool="roast">🔥 Roast Mode <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="mindmap">🧠 Mind Map <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="mcq">❓ MCQ Generator <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="career">🚀 Career Guide <span class="pro-badge">PRO</span></button>
+
+    <div class="leaderboard">
+      <h3>🏆 Live Leaderboard</h3>
+      <div id="lb-list">Loading...</div>
+    </div>
+  </aside>
+
+  <section class="chat-area">
+    <div class="messages" id="messages">
+      <div class="welcome">
+        <h2>Welcome to StudyGenie 🎓</h2>
+        <p>All exams support • Made with ❤️ by Sparsh Singhal</p>
+        <p style="margin-top:1rem;font-size:0.9rem">Select a tool and ask anything!</p>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="tools-bar">
+        <select id="toolSelect">
+          <option value="general">General</option>
+          <option value="explain">Explain</option>
+          <option value="solve">Solve</option>
+          <option value="notes">Notes</option>
+          <option value="pyq">PYQ</option>
+          <option value="formula">Formula</option>
+          <option value="planner">Planner</option>
+          <option value="mock">Mock</option>
+          <option value="roast">Roast (Pro)</option>
+          <option value="mindmap">Mind Map (Pro)</option>
+          <option value="mcq">MCQ (Pro)</option>
+          <option value="career">Career (Pro)</option>
+        </select>
+        <button onclick="document.getElementById('imageInput').click()">📷 Image</button>
+        <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="handleImage(this)">
+      </div>
+      <div class="input-row">
+        <textarea id="question" placeholder="Apna sawaal yahan likho..." rows="1"></textarea>
+        <button class="send" id="sendBtn" onclick="ask()">Send</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+  let currentTool = "general";
+  let clientId = localStorage.getItem("sg_client") || "web_" + Math.random().toString(36).slice(2);
+  localStorage.setItem("sg_client", clientId);
+  let imageBase64 = null;
+
+  document.querySelectorAll(".tool-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tool-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentTool = btn.dataset.tool;
+      document.getElementById("toolSelect").value = currentTool;
+    });
+  });
+  document.getElementById("toolSelect").addEventListener("change", e => {
+    currentTool = e.target.value;
+  });
+
+  function handleImage(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      imageBase64 = reader.result.split(",")[1];
+      addMessage("user", "📷 Image uploaded (OCR will run)");
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function addMessage(role, text, meta = "") {
+    const div = document.createElement("div");
+    div.className = `msg ${role}`;
+    div.innerHTML = text.replace(/\n/g, "<br>") + (meta ? `<div class="meta">${meta}</div>` : "");
+    const box = document.getElementById("messages");
+    const welcome = box.querySelector(".welcome");
+    if (welcome) welcome.remove();
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  async function ask() {
+    const q = document.getElementById("question").value.trim();
+    if (!q && !imageBase64) return;
+
+    const btn = document.getElementById("sendBtn");
+    btn.disabled = true;
+    btn.textContent = "...";
+
+    addMessage("user", q || "📷 Image question");
+    document.getElementById("question").value = "";
+
+    const loading = document.createElement("div");
+    loading.className = "msg bot loading";
+    loading.textContent = "Thinking... ⏳";
+    document.getElementById("messages").appendChild(loading);
+
+    try {
+      const res = await fetch("/api/webask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: q,
+          tool: currentTool,
+          client_id: clientId,
+          image_base64: imageBase64 || undefined
+        })
+      });
+      const data = await res.json();
+      loading.remove();
+      addMessage("bot", data.answer || "No response", 
+        data.elapsed ? `⚡ ${data.elapsed}s` : "");
+
+      if (data.xp !== undefined) {
+        document.getElementById("xp-display").textContent = `⭐ ${data.xp} XP`;
+        document.getElementById("level-display").textContent = `Level ${data.level}`;
+      }
+      if (data.quota) {
+        const q = data.quota;
+        document.getElementById("quota-display").textContent = 
+          q.daily_left === -1 ? "PRO ∞" : `Free: ${q.daily_left} left`;
+      }
+    } catch (err) {
+      loading.remove();
+      addMessage("bot", "😔 Network error. Please try again.");
+    }
+
+    imageBase64 = null;
+    btn.disabled = false;
+    btn.textContent = "Send";
+  }
+
+  document.getElementById("question").addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      ask();
+    }
+  });
+
+  async function loadLB() {
+    try {
+      const res = await fetch("/api/leaderboard");
+      const data = await res.json();
+      const list = document.getElementById("lb-list");
+      if (!data.board || !data.board.length) {
+        list.innerHTML = "<div style='color:#64748b;font-size:0.85rem'>No one yet</div>";
+        return;
+      }
+      list.innerHTML = data.board.slice(0,8).map(e => 
+        `<div class="lb-item"><span>${e.rank}. ${e.name}</span><span>L${e.level}</span></div>`
+      ).join("");
+    } catch {}
+  }
+  loadLB();
+  setInterval(loadLB, 30000);
+</script>
+</body>
+</html>
+"""
+
+# ============================================================================
 # FLASK APP
 # ============================================================================
 
@@ -1119,22 +1417,10 @@ def serve_photo():
         return "", 404
 
 
-# NOTE: FRONTEND_HTML is very long. Keep your original beautiful frontend.
-# Only the AI backend has been upgraded. For the complete file with full HTML,
-# you can keep your existing FRONTEND_HTML string exactly as it was.
-
 @app.route("/")
 def home():
     return render_template_string(
-        """<!DOCTYPE html><html><head><title>StudyGenie by Sparsh Singhal</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>body{font-family:system-ui;background:#0b1220;color:#f1f5f9;text-align:center;padding:2rem}
-        a{color:#22d3ee}</style></head><body>
-        <h1>🎓 StudyGenie by Sparsh Singhal</h1>
-        <p>All exams support • Groq + Gemini dual AI</p>
-        <p><a href="/api/debug/ai">Test AI Status</a></p>
-        <p>Made with ❤️ by Sparsh Singhal</p>
-        </body></html>""",
+        FRONTEND_HTML,
         price=config.PRO_PRICE_INR,
         free_daily=config.FREE_DAILY,
         free_lifetime=config.FREE_LIFETIME,
@@ -1155,7 +1441,7 @@ def health():
         "groq": ai.groq_client is not None,
         "gemini": ai.gemini_client is not None,
         "primary": config.AI_PRIMARY,
-        "version": "StudyGenie by Sparsh Singhal v3.0 (All Exams + Dual AI)",
+        "version": "StudyGenie by Sparsh Singhal v3.1 (All Exams + Dual AI + Robust)",
         "creator": "Sparsh Singhal",
     })
 
@@ -1175,7 +1461,7 @@ def debug_ai():
             resp = ai.groq_client.chat.completions.create(
                 model=config.GROQ_MODEL,
                 messages=[{"role": "user", "content": "Say exactly: OK StudyGenie"}],
-                max_tokens=100,          # increased
+                max_tokens=100,
                 temperature=0,
             )
             text = ""
@@ -1217,7 +1503,6 @@ def debug_ai():
             )
 
             text = ""
-            # Safe extraction
             try:
                 if hasattr(resp, "text") and resp.text:
                     text = resp.text.strip()
