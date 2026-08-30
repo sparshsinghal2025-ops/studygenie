@@ -1174,17 +1174,25 @@ def debug_ai():
         try:
             resp = ai.groq_client.chat.completions.create(
                 model=config.GROQ_MODEL,
-                messages=[{"role": "user", "content": "Reply with exactly: OK StudyGenie"}],
-                max_tokens=20,
+                messages=[
+                    {"role": "user", "content": "Say exactly: OK StudyGenie"}
+                ],
+                max_tokens=30,
                 temperature=0,
-                timeout=20,
             )
-            text = (resp.choices[0].message.content or "").strip()
+            # Full debug info
+            choice = resp.choices[0] if resp.choices else None
+            text = ""
+            if choice and choice.message:
+                text = (choice.message.content or "").strip()
+
             results["groq"] = {
                 "ok": bool(text),
                 "model": config.GROQ_MODEL,
-                "reply": text[:150],
+                "reply": text[:200],
+                "finish_reason": getattr(choice, "finish_reason", None) if choice else None,
                 "elapsed": round(time.time() - t0, 2),
+                "raw_choices_len": len(resp.choices) if resp.choices else 0,
             }
         except Exception as e:
             results["groq"] = {
@@ -1194,7 +1202,7 @@ def debug_ai():
                 "elapsed": round(time.time() - t0, 2),
             }
     else:
-        results["groq"] = {"ok": False, "error": "Groq client not initialized (check GROQ_API_KEY)"}
+        results["groq"] = {"ok": False, "error": "Groq client not initialized"}
 
     # ---------- Test Gemini ----------
     if ai.gemini_client:
@@ -1202,17 +1210,17 @@ def debug_ai():
         try:
             resp = ai.gemini_client.models.generate_content(
                 model=config.GEMINI_MODEL,
-                contents=["Reply with exactly: OK StudyGenie"],
+                contents="Say exactly: OK StudyGenie",
                 config=genai_types.GenerateContentConfig(
                     temperature=0,
-                    max_output_tokens=20,
+                    max_output_tokens=30,
                 ),
             )
-            text = (resp.text or "").strip()
+            text = (resp.text or "").strip() if resp else ""
             results["gemini"] = {
                 "ok": bool(text),
                 "model": config.GEMINI_MODEL,
-                "reply": text[:150],
+                "reply": text[:200],
                 "elapsed": round(time.time() - t0, 2),
             }
         except Exception as e:
@@ -1223,7 +1231,7 @@ def debug_ai():
                 "elapsed": round(time.time() - t0, 2),
             }
     else:
-        results["gemini"] = {"ok": False, "error": "Gemini client not initialized (check GOOGLE_API_KEY)"}
+        results["gemini"] = {"ok": False, "error": "Gemini client not initialized"}
 
     return jsonify(results)
 
