@@ -1174,25 +1174,24 @@ def debug_ai():
         try:
             resp = ai.groq_client.chat.completions.create(
                 model=config.GROQ_MODEL,
-                messages=[
-                    {"role": "user", "content": "Say exactly: OK StudyGenie"}
-                ],
+                messages=[{"role": "user", "content": "Say exactly: OK StudyGenie"}],
                 max_tokens=30,
                 temperature=0,
             )
-            # Full debug info
-            choice = resp.choices[0] if resp.choices else None
             text = ""
-            if choice and choice.message:
-                text = (choice.message.content or "").strip()
+            finish_reason = None
+            if resp.choices:
+                choice = resp.choices[0]
+                finish_reason = getattr(choice, "finish_reason", None)
+                if choice.message:
+                    text = (choice.message.content or "").strip()
 
             results["groq"] = {
                 "ok": bool(text),
                 "model": config.GROQ_MODEL,
                 "reply": text[:200],
-                "finish_reason": getattr(choice, "finish_reason", None) if choice else None,
+                "finish_reason": finish_reason,
                 "elapsed": round(time.time() - t0, 2),
-                "raw_choices_len": len(resp.choices) if resp.choices else 0,
             }
         except Exception as e:
             results["groq"] = {
@@ -1204,7 +1203,7 @@ def debug_ai():
     else:
         results["groq"] = {"ok": False, "error": "Groq client not initialized"}
 
-    # ---------- Test Gemini ----------
+    # ---------- Test Gemini (more robust extraction) ----------
     if ai.gemini_client:
         t0 = time.time()
         try:
@@ -1216,12 +1215,29 @@ def debug_ai():
                     max_output_tokens=30,
                 ),
             )
-            text = (resp.text or "").strip() if resp else ""
+
+            text = ""
+            # Method 1: direct .text
+            if hasattr(resp, "text") and resp.text:
+                text = resp.text.strip()
+
+            # Method 2: from candidates (more reliable)
+            if not text and hasattr(resp, "candidates") and resp.candidates:
+                for cand in resp.candidates:
+                    if hasattr(cand, "content") and cand.content and hasattr(cand.content, "parts"):
+                        for part in cand.content.parts:
+                            if hasattr(part, "text") and part.text:
+                                text = part.text.strip()
+                                break
+                    if text:
+                        break
+
             results["gemini"] = {
                 "ok": bool(text),
                 "model": config.GEMINI_MODEL,
                 "reply": text[:200],
                 "elapsed": round(time.time() - t0, 2),
+                "has_candidates": bool(getattr(resp, "candidates", None)),
             }
         except Exception as e:
             results["gemini"] = {
