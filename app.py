@@ -3,7 +3,7 @@ StudyGenie by Sparsh Singhal
 Fully Gamified Multi-Platform E-Learning Bot
 Telegram + WhatsApp + Web Dashboard
 Groq (Primary) + Gemini (Fallback) | All Exams | Stats | Razorpay Pro
-UI: Branding + Pro Modal + Sounds + Dev Mode
+UI: Branding + Pro Modal + Sounds + Dev Mode + Name Input
 """
 
 from __future__ import annotations
@@ -952,7 +952,7 @@ def process_whatsapp_message(from_number: str, text: str, profile_name: str = ""
 
 
 # ============================================================================
-# FRONTEND (full UI upgrades)
+# FRONTEND
 # ============================================================================
 
 FRONTEND_HTML = r"""
@@ -977,7 +977,6 @@ main{flex:1;display:grid;grid-template-columns:280px 1fr;max-width:1400px;margin
 @media(max-width:900px){main{grid-template-columns:1fr}.sidebar{display:none}}
 .sidebar{background:var(--card);border-right:1px solid var(--border);padding:1.25rem 1rem;overflow-y:auto}
 .sidebar h3{font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:1rem 0 .6rem}
-.sidebar h3:first-child{margin-top:0}
 .tool-btn{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;color:var(--text);padding:.55rem .8rem;border-radius:8px;margin-bottom:.25rem;cursor:pointer;font-size:.92rem}
 .tool-btn:hover,.tool-btn.active{background:rgba(34,211,238,.12);border-color:var(--accent);color:var(--accent)}
 .pro-badge{background:linear-gradient(90deg,#a78bfa,#ec4899);color:#fff;font-size:.65rem;padding:.12rem .4rem;border-radius:999px;margin-left:.35rem}
@@ -1014,7 +1013,7 @@ button.send:disabled{opacity:.5}
 .modal .actions button{flex:1;padding:.7rem;border:none;border-radius:10px;font-weight:700;cursor:pointer}
 .btn-pro{background:linear-gradient(90deg,#a78bfa,#ec4899);color:#fff}
 .btn-close{background:#0f172a;color:var(--text);border:1px solid var(--border)!important}
-.dev-box input{width:100%;padding:.65rem;border-radius:8px;border:1px solid var(--border);background:#0f172a;color:var(--text);margin:.75rem 0}
+input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border:1px solid var(--border);background:#0f172a;color:var(--text);font-size:1rem}
 </style>
 </head>
 <body>
@@ -1027,6 +1026,7 @@ button.send:disabled{opacity:.5}
     </div>
   </div>
   <div class="stats">
+    <span id="name-display" style="cursor:pointer;color:var(--accent)" onclick="openNameModal()" title="Change name">👤 Set name</span>
     <span id="xp-display">⭐ 0 XP</span>
     <span id="level-display">Level 1</span>
     <span id="quota-display">Free</span>
@@ -1137,12 +1137,25 @@ button.send:disabled{opacity:.5}
   <div class="modal">
     <h2>🔐 Developer Mode</h2>
     <p style="color:var(--muted);font-size:.9rem">Enter secret code</p>
-    <input id="devCode" type="password" placeholder="Secret code" class="dev-box" />
+    <input id="devCode" type="password" placeholder="Secret code" class="name-input" />
     <div class="actions">
       <button class="btn-pro" onclick="checkDev()">Unlock</button>
       <button class="btn-close" onclick="closeDevModal()">Close</button>
     </div>
     <p id="devMsg" style="margin-top:.75rem;font-size:.85rem;color:var(--muted)"></p>
+  </div>
+</div>
+
+<div class="modal-bg" id="nameModal">
+  <div class="modal">
+    <h2>👤 Apna naam likho</h2>
+    <p style="color:var(--muted);font-size:.9rem;margin-top:.4rem">Yeh naam leaderboard pe dikhega</p>
+    <input id="nameInput" class="name-input" type="text" maxlength="40" placeholder="e.g. Rahul Sharma" />
+    <div class="actions">
+      <button class="btn-pro" onclick="saveName()">Save</button>
+      <button class="btn-close" onclick="closeNameModal()">Skip</button>
+    </div>
+    <p id="nameMsg" style="margin-top:.6rem;font-size:.85rem;color:var(--muted)"></p>
   </div>
 </div>
 
@@ -1198,6 +1211,62 @@ function closeProModal(){ document.getElementById("proModal").classList.remove("
 function openDevModal(){ document.getElementById("devModal").classList.add("show"); document.getElementById("devCode").value=""; document.getElementById("devMsg").textContent=""; }
 function closeDevModal(){ document.getElementById("devModal").classList.remove("show"); }
 function goPay(){ window.location.href = "/pay?uid=" + encodeURIComponent("web:" + clientId); }
+
+function openNameModal(){
+  soundClick();
+  document.getElementById("nameModal").classList.add("show");
+  document.getElementById("nameInput").value = localStorage.getItem("sg_name") || "";
+  document.getElementById("nameMsg").textContent = "";
+}
+function closeNameModal(){
+  document.getElementById("nameModal").classList.remove("show");
+  localStorage.setItem("sg_name_skipped", "1");
+}
+async function saveName(){
+  const name = document.getElementById("nameInput").value.trim();
+  const msg = document.getElementById("nameMsg");
+  if(name.length < 2){
+    msg.style.color = "#f87171";
+    msg.textContent = "Kam se kam 2 letters likho";
+    soundError();
+    return;
+  }
+  try{
+    const res = await fetch("/api/set-name", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ client_id: clientId, name: name })
+    });
+    const data = await res.json();
+    if(data.ok){
+      localStorage.setItem("sg_name", data.name);
+      document.getElementById("name-display").textContent = "👤 " + data.name;
+      msg.style.color = "#22d3ee";
+      msg.textContent = "Saved!";
+      soundRecv();
+      setTimeout(closeNameModal, 500);
+      loadLB();
+    }else{
+      msg.style.color = "#f87171";
+      msg.textContent = data.error || "Failed";
+      soundError();
+    }
+  }catch(e){
+    msg.style.color = "#f87171";
+    msg.textContent = "Network error";
+    soundError();
+  }
+}
+
+(function initName(){
+  const saved = localStorage.getItem("sg_name");
+  const skipped = localStorage.getItem("sg_name_skipped");
+  if(saved){
+    document.getElementById("name-display").textContent = "👤 " + saved;
+  } else if(!skipped){
+    setTimeout(openNameModal, 900);
+  }
+})();
 
 async function checkDev(){
   const code = document.getElementById("devCode").value.trim();
@@ -1404,6 +1473,23 @@ def api_create_order():
     return jsonify({"id": order.get("id"), "amount": order.get("amount"), "currency": order.get("currency", "INR")})
 
 
+@app.route("/api/set-name", methods=["POST"])
+def api_set_name():
+    data = request.get_json(silent=True) or {}
+    client_id = (data.get("client_id") or "").strip()
+    name = (data.get("name") or "").strip()[:40]
+    if not client_id:
+        return jsonify({"ok": False, "error": "client_id required"}), 400
+    if not name or len(name) < 2:
+        return jsonify({"ok": False, "error": "Name too short"}), 400
+    name = " ".join(name.split())
+    uid = f"web:{client_id}"
+    udata = db.ensure_user(uid, full_name=name, platform="web")
+    udata["full_name"] = name
+    db.save_user(uid, udata)
+    return jsonify({"ok": True, "name": name})
+
+
 @app.route("/health")
 def health():
     redis_ok = False
@@ -1416,7 +1502,7 @@ def health():
         "ok": True, "redis": redis_ok,
         "groq": ai.groq_client is not None, "gemini": ai.gemini_client is not None,
         "primary": config.AI_PRIMARY,
-        "version": "StudyGenie v3.4 (UI+Pay+Stats+Dual AI)",
+        "version": "StudyGenie v3.5 (Name+UI+Pay+Stats)",
         "creator": "Sparsh Singhal",
     })
 
