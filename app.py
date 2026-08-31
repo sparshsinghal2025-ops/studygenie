@@ -6,6 +6,7 @@ Production-ready (thousands scale) for Railway / Render / Fly / VPS
 
 Author & Creator: Sparsh Singhal
 Updated: Groq (Primary) + Gemini (Fallback) | All Exams Support | Robust Dual AI
++ DAU / Pro Users / Live Stats Tracking
 """
 
 from __future__ import annotations
@@ -83,8 +84,8 @@ class Config:
         self.GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
         self.AI_PRIMARY = os.getenv("AI_PRIMARY", "groq").strip().lower()
 
-        self.FREE_DAILY = int(os.getenv("FREE_DAILY_QUESTIONS", "8"))
-        self.FREE_LIFETIME = int(os.getenv("FREE_LIFETIME_QUESTIONS", "25"))
+        self.FREE_DAILY = int(os.getenv("FREE_DAILY_QUESTIONS", "4"))
+        self.FREE_LIFETIME = int(os.getenv("FREE_LIFETIME_QUESTIONS", "12"))
 
         self.PRO_PRICE_INR = int(os.getenv("PRO_PRICE_INR", "49"))
         self.RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "").strip()
@@ -125,15 +126,15 @@ config = Config()
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
-_AI_POOL = ThreadPoolExecutor(max_workers=int(os.getenv("AI_POOL_WORKERS", "8")), thread_name_prefix="ai")
-_AI_TIMEOUT = float(os.getenv("AI_TIMEOUT_SEC", "55"))
+_AI_POOL = ThreadPoolExecutor(max_workers=int(os.getenv("AI_POOL_WORKERS", "6")), thread_name_prefix="ai")
+_AI_TIMEOUT = float(os.getenv("AI_TIMEOUT_SEC", "45"))
 
 _rate_lock = Lock()
 _rate_buckets: dict[str, list[float]] = defaultdict(list)
 _redis_for_rl: Optional[redis.Redis] = None
 
 
-def is_rate_limited(key: str, max_calls: int = 12, window_sec: int = 60) -> bool:
+def is_rate_limited(key: str, max_calls: int = 8, window_sec: int = 60) -> bool:
     r = _redis_for_rl
     if r is not None:
         try:
@@ -177,7 +178,7 @@ def run_ai(fn, *args, **kwargs):
 
 
 # ============================================================================
-# DATABASE
+# DATABASE (with DAU + Pro + Live tracking)
 # ============================================================================
 
 class Database:
@@ -301,6 +302,23 @@ class Database:
                 pass
         return data
 
+    def track_activity(self, uid: str | int) -> None:
+        """Track DAU + approximate live user"""
+        if not self.redis:
+            return
+        try:
+            today = _today_ist()
+            uid = str(uid)
+            pipe = self.redis.pipeline()
+            # Daily Active Users
+            pipe.sadd(f"dau:{today}", uid)
+            pipe.expire(f"dau:{today}", 90000)
+            # Live users (2 minute window)
+            pipe.setex(f"live:{uid}", 120, "1")
+            pipe.execute()
+        except Exception as e:
+            logger.warning("track_activity failed: %s", e)
+
     def is_pro(self, uid: str | int) -> bool:
         user = self.get_user(uid)
         if not user or user.get("plan") != "pro":
@@ -318,7 +336,13 @@ class Database:
         until = (_now_ist() + timedelta(days=days)).isoformat()
         user["plan"] = "pro"
         user["pro_until"] = until
-        return self.save_user(uid, user)
+        ok = self.save_user(uid, user)
+        if ok and self.redis:
+            try:
+                self.redis.sadd("stats:pro_users", str(uid))
+            except Exception:
+                pass
+        return ok
 
     def add_xp(self, uid: str | int, amount: int) -> Tuple[int, int]:
         user = self.get_user(uid)
@@ -436,22 +460,50 @@ class Database:
 
     def get_stats(self) -> Dict[str, int]:
         if not self.redis:
-            return {"total_users": 0, "total_questions": 0, "online_approx": 0}
+            return {
+                "total_users": 0,
+                "total_questions": 0,
+                "dau_today": 0,
+                "pro_users": 0,
+                "live_approx": 0,
+            }
         try:
+            today = _today_ist()
+            # Live users approximation (keys with live: prefix)
+            live_count = 0
+            try:
+                # SCAN is safer than KEYS
+                cursor = 0
+                while True:
+                    cursor, keys = self.redis.scan(cursor=cursor, match="live:*", count=100)
+                    live_count += len(keys)
+                    if cursor == 0:
+                        break
+            except Exception:
+                live_count = 0
+
             return {
                 "total_users": int(self.redis.scard("stats:users") or 0),
                 "total_questions": int(self.redis.get("stats:total_questions") or 0),
-                "online_approx": int(self.redis.zcard("leaderboard") or 0),
+                "dau_today": int(self.redis.scard(f"dau:{today}") or 0),
+                "pro_users": int(self.redis.scard("stats:pro_users") or 0),
+                "live_approx": live_count,
             }
         except Exception:
-            return {"total_users": 0, "total_questions": 0, "online_approx": 0}
+            return {
+                "total_users": 0,
+                "total_questions": 0,
+                "dau_today": 0,
+                "pro_users": 0,
+                "live_approx": 0,
+            }
 
 
 db = Database()
 _redis_for_rl = db.redis
 
 # ============================================================================
-# AI SERVICE (Groq Primary + Gemini Fallback) - All Exams Support
+# AI SERVICE (Groq Primary + Gemini Fallback)
 # ============================================================================
 
 class AIService:
@@ -559,7 +611,6 @@ class AIService:
         templates = self._templates(base, question.strip())
         prompt = templates.get(tool, templates["general"])
 
-        # Cache key
         cache_key = None
         if db.redis:
             try:
@@ -625,7 +676,7 @@ class AIService:
 ai = AIService()
 
 # ============================================================================
-# TELEGRAM HELPERS
+# TELEGRAM HELPERS + HANDLERS (same as before, with track_activity added)
 # ============================================================================
 
 async def typing(update: Update) -> None:
@@ -694,6 +745,9 @@ async def process_question(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     uid = user.id
     is_pro = db.is_pro(uid)
 
+    # Track activity
+    db.track_activity(uid)
+
     pro_only = {"roast", "ncert", "mindmap", "important", "diagram", "derivation", "numerical", "mcq", "essay", "resume", "youtube", "career", "ocr", "mock", "tips"}
     if tool in pro_only and not is_pro:
         await reply(update, f"🔒 This tool is *Pro-only*.\n\nUpgrade for ₹{config.PRO_PRICE_INR}/30 days.",
@@ -738,15 +792,12 @@ async def process_question(update: Update, context: ContextTypes.DEFAULT_TYPE, t
                 await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
 
 
-# ============================================================================
-# TELEGRAM HANDLERS
-# ============================================================================
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user:
         return
     db.ensure_user(user.id, user.username or "", user.full_name or "Student")
+    db.track_activity(user.id)
     is_pro = db.is_pro(user.id)
     await reply(update,
         f"🎓 *Welcome to StudyGenie!*\n\n"
@@ -773,7 +824,6 @@ async def free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id if update.effective_user else 0
     tool = db.pop_tool(uid) or "general"
 
-    # Simple keyword detection
     lower = text.lower()
     if lower.startswith(("explain", "samjhao")): tool = "explain"
     elif lower.startswith(("solve", "hal")): tool = "solve"
@@ -899,6 +949,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     uid = user.id
     is_pro = db.is_pro(uid)
+    db.track_activity(uid)
+
     if not is_pro:
         await reply(update, f"📷 Image Doubt Scan is *Pro-only*.\n\nUpgrade for ₹{config.PRO_PRICE_INR}/30 days.\n\n_ - made with love by Sparsh Singhal _",
                     InlineKeyboardMarkup([[InlineKeyboardButton(f"💎 Upgrade ₹{config.PRO_PRICE_INR}", callback_data="menu_upgrade")]]))
@@ -986,6 +1038,7 @@ async def get_app() -> Application:
 def process_whatsapp_message(from_number: str, text: str, profile_name: str = "") -> None:
     uid = f"wa:{from_number}"
     db.ensure_user(uid, full_name=profile_name or "WhatsApp Student", platform="whatsapp")
+    db.track_activity(uid)
     is_pro = db.is_pro(uid)
 
     if not is_pro:
@@ -1002,7 +1055,6 @@ def process_whatsapp_message(from_number: str, text: str, profile_name: str = ""
 
     db.add_xp(uid, config.XP_QUESTION * (2 if is_pro else 1))
 
-    # Send via WhatsApp Cloud API
     if config.WHATSAPP_TOKEN and config.WHATSAPP_PHONE_NUMBER_ID:
         try:
             url = f"https://graph.facebook.com/{config.WHATSAPP_API_VERSION}/{config.WHATSAPP_PHONE_NUMBER_ID}/messages"
@@ -1019,7 +1071,7 @@ def process_whatsapp_message(from_number: str, text: str, profile_name: str = ""
 
 
 # ============================================================================
-# FRONTEND
+# FRONTEND (same as before)
 # ============================================================================
 
 FRONTEND_HTML = r"""
@@ -1034,7 +1086,6 @@ FRONTEND_HTML = r"""
     --bg: #0b1220;
     --card: #111827;
     --accent: #22d3ee;
-    --accent2: #a78bfa;
     --text: #f1f5f9;
     --muted: #94a3b8;
     --border: rgba(255,255,255,0.08);
@@ -1441,7 +1492,7 @@ def health():
         "groq": ai.groq_client is not None,
         "gemini": ai.gemini_client is not None,
         "primary": config.AI_PRIMARY,
-        "version": "StudyGenie by Sparsh Singhal v3.1 (All Exams + Dual AI + Robust)",
+        "version": "StudyGenie by Sparsh Singhal v3.2 (Stats + Dual AI)",
         "creator": "Sparsh Singhal",
     })
 
@@ -1454,7 +1505,6 @@ def debug_ai():
         "gemini_key_present": bool(config.GOOGLE_API_KEY),
     }
 
-    # ---------- Test Groq ----------
     if ai.groq_client:
         t0 = time.time()
         try:
@@ -1489,7 +1539,6 @@ def debug_ai():
     else:
         results["groq"] = {"ok": False, "error": "Groq client not initialized"}
 
-    # ---------- Test Gemini ----------
     if ai.gemini_client:
         t0 = time.time()
         try:
@@ -1501,14 +1550,12 @@ def debug_ai():
                     max_output_tokens=100,
                 ),
             )
-
             text = ""
             try:
                 if hasattr(resp, "text") and resp.text:
                     text = resp.text.strip()
             except Exception:
                 pass
-
             if not text:
                 try:
                     candidates = getattr(resp, "candidates", None) or []
@@ -1553,7 +1600,7 @@ def web_ask():
     client_id = (data.get("client_id") or request.remote_addr or "anon").strip()
     image_b64 = data.get("image_base64") or ""
 
-    if is_rate_limited(f"web:{client_id}", max_calls=10, window_sec=60):
+    if is_rate_limited(f"web:{client_id}", max_calls=8, window_sec=60):
         return jsonify({"answer": "Too many requests. Please wait a minute.\n\n- made with love by Sparsh Singhal"}), 429
 
     if not q and not image_b64:
@@ -1561,6 +1608,7 @@ def web_ask():
 
     uid = f"web:{client_id}"
     udata = db.ensure_user(uid, full_name="Web Student", platform="web")
+    db.track_activity(uid)
     is_pro = db.is_pro(uid)
 
     pro_only = {"roast", "ncert", "mindmap", "important", "diagram", "derivation", "numerical", "mcq", "essay", "resume", "youtube", "career", "voice", "ocr", "mock", "tips"}
@@ -1613,7 +1661,15 @@ def dev_stats():
     code = request.args.get("code", "")
     if code != config.DEV_SECRET:
         return jsonify({"ok": False}), 403
-    return jsonify({"ok": True, **db.get_stats()})
+    stats = db.get_stats()
+    return jsonify({
+        "ok": True,
+        "total_users": stats["total_users"],
+        "dau_today": stats["dau_today"],
+        "pro_users": stats["pro_users"],
+        "live_approx": stats["live_approx"],
+        "total_questions": stats["total_questions"],
+    })
 
 
 @app.route("/api/razorpay/webhook", methods=["POST"])
@@ -1677,7 +1733,7 @@ def telegram_webhook():
         if not data:
             return jsonify({"ok": False}), 400
         uid = str(data.get("message", {}).get("from", {}).get("id") or data.get("callback_query", {}).get("from", {}).get("id") or "tg")
-        if is_rate_limited(f"tg:{uid}", max_calls=20, window_sec=60):
+        if is_rate_limited(f"tg:{uid}", max_calls=12, window_sec=60):
             return jsonify({"ok": True})
 
         async def _run():
