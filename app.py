@@ -3,6 +3,7 @@ StudyGenie by Sparsh Singhal
 Fully Gamified Multi-Platform E-Learning Bot
 Telegram + WhatsApp + Web Dashboard
 Groq (Primary) + Gemini (Fallback) | All Exams | Stats | Razorpay Pro
+UI: Branding + Pro Modal + Sounds + Dev Mode
 """
 
 from __future__ import annotations
@@ -578,7 +579,8 @@ class AIService:
         if not question or not question.strip():
             return "Please ask a valid question."
         base = self._base_prompt(is_pro)
-        prompt = self._templates(base, question.strip()).get(tool, self._templates(base, question.strip())["general"])
+        templates = self._templates(base, question.strip())
+        prompt = templates.get(tool, templates["general"])
         cache_key = None
         if db.redis:
             try:
@@ -698,7 +700,7 @@ async def process_question(update: Update, context: ContextTypes.DEFAULT_TYPE, t
                 "mcq", "essay", "resume", "youtube", "career", "ocr", "mock", "tips"}
     if tool in pro_only and not is_pro:
         await reply(update, f"🔒 Pro-only tool.\n\nUpgrade ₹{config.PRO_PRICE_INR}/30 days.",
-                    InlineKeyboardMarkup([[InlineKeyboardButton(f"💎 Upgrade", callback_data="menu_upgrade")]]))
+                    InlineKeyboardMarkup([[InlineKeyboardButton("💎 Upgrade", callback_data="menu_upgrade")]]))
         return
     if not is_pro:
         can, quota = db.check_quota(uid)
@@ -950,7 +952,7 @@ def process_whatsapp_message(from_number: str, text: str, profile_name: str = ""
 
 
 # ============================================================================
-# FRONTEND + PAY PAGE
+# FRONTEND (full UI upgrades)
 # ============================================================================
 
 FRONTEND_HTML = r"""
@@ -961,77 +963,138 @@ FRONTEND_HTML = r"""
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StudyGenie by Sparsh Singhal</title>
 <style>
-:root{--bg:#0b1220;--card:#111827;--accent:#22d3ee;--text:#f1f5f9;--muted:#94a3b8;--border:rgba(255,255,255,0.08)}
+:root{--bg:#0b1220;--card:#111827;--accent:#22d3ee;--text:#f1f5f9;--muted:#94a3b8;--border:rgba(255,255,255,0.08);--pro:#a78bfa}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
-header{background:linear-gradient(90deg,#0f172a,#1e1b4b);padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50}
-.logo{font-size:1.4rem;font-weight:700}.logo span{color:var(--accent)}
-.stats{font-size:.85rem;color:var(--muted);display:flex;gap:1.2rem}
+body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
+header{background:linear-gradient(90deg,#0f172a,#1e1b4b);padding:.85rem 1.25rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50}
+.logo-wrap{display:flex;align-items:center;gap:.65rem;cursor:pointer;user-select:none}
+.logo-wrap img{width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)}
+.logo{font-size:1.25rem;font-weight:700}.logo span{color:var(--accent)}
+.brand-sub{font-size:.7rem;color:var(--muted);margin-top:1px}
+.stats{font-size:.82rem;color:var(--muted);display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
+.pro-btn-top{background:linear-gradient(90deg,#a78bfa,#ec4899);color:#fff;border:none;border-radius:999px;padding:.35rem .85rem;font-size:.78rem;font-weight:700;cursor:pointer}
 main{flex:1;display:grid;grid-template-columns:280px 1fr;max-width:1400px;margin:0 auto;width:100%}
 @media(max-width:900px){main{grid-template-columns:1fr}.sidebar{display:none}}
-.sidebar{background:var(--card);border-right:1px solid var(--border);padding:1.5rem 1rem;overflow-y:auto}
-.sidebar h3{font-size:.8rem;text-transform:uppercase;color:var(--muted);margin-bottom:.8rem}
-.tool-btn{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;color:var(--text);padding:.6rem .9rem;border-radius:8px;margin-bottom:.3rem;cursor:pointer}
+.sidebar{background:var(--card);border-right:1px solid var(--border);padding:1.25rem 1rem;overflow-y:auto}
+.sidebar h3{font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:1rem 0 .6rem}
+.sidebar h3:first-child{margin-top:0}
+.tool-btn{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;color:var(--text);padding:.55rem .8rem;border-radius:8px;margin-bottom:.25rem;cursor:pointer;font-size:.92rem}
 .tool-btn:hover,.tool-btn.active{background:rgba(34,211,238,.12);border-color:var(--accent);color:var(--accent)}
-.chat-area{display:flex;flex-direction:column;height:calc(100vh - 70px)}
-.messages{flex:1;overflow-y:auto;padding:1.5rem;display:flex;flex-direction:column;gap:1.2rem}
-.msg{max-width:85%;padding:1rem 1.2rem;border-radius:16px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.pro-badge{background:linear-gradient(90deg,#a78bfa,#ec4899);color:#fff;font-size:.65rem;padding:.12rem .4rem;border-radius:999px;margin-left:.35rem}
+.pay-side{display:block;width:100%;margin:1rem 0 .5rem;background:linear-gradient(90deg,#a78bfa,#ec4899);color:#fff;border:none;border-radius:10px;padding:.7rem;font-weight:700;cursor:pointer;font-size:.9rem}
+.creator-card{display:flex;gap:.7rem;align-items:center;padding:.75rem;background:#0f172a;border-radius:12px;border:1px solid var(--border);margin-bottom:1rem}
+.creator-card img{width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)}
+.creator-card .name{font-weight:700;font-size:.9rem}
+.creator-card .role{font-size:.72rem;color:var(--muted)}
+.chat-area{display:flex;flex-direction:column;height:calc(100vh - 64px)}
+.messages{flex:1;overflow-y:auto;padding:1.25rem;display:flex;flex-direction:column;gap:1rem}
+.msg{max-width:85%;padding:.95rem 1.1rem;border-radius:16px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
 .msg.user{align-self:flex-end;background:linear-gradient(135deg,#0891b2,#0e7490);border-bottom-right-radius:4px}
 .msg.bot{align-self:flex-start;background:var(--card);border:1px solid var(--border);border-bottom-left-radius:4px}
-.msg .meta{font-size:.75rem;color:var(--muted);margin-top:.6rem}
-.input-area{padding:1rem 1.5rem 1.5rem;background:var(--card);border-top:1px solid var(--border)}
-.input-row{display:flex;gap:.75rem;align-items:flex-end}
-textarea{flex:1;background:#0f172a;border:1px solid var(--border);border-radius:12px;color:var(--text);padding:.9rem 1rem;resize:none;font-size:1rem;min-height:52px;outline:none}
-button.send{background:var(--accent);color:#0b1220;border:none;border-radius:12px;padding:0 1.4rem;height:52px;font-weight:700;cursor:pointer}
+.msg .meta{font-size:.72rem;color:var(--muted);margin-top:.5rem}
+.input-area{padding:1rem 1.25rem 1.25rem;background:var(--card);border-top:1px solid var(--border)}
+.input-row{display:flex;gap:.65rem;align-items:flex-end}
+textarea{flex:1;background:#0f172a;border:1px solid var(--border);border-radius:12px;color:var(--text);padding:.85rem 1rem;resize:none;font-size:1rem;min-height:48px;outline:none}
+button.send{background:var(--accent);color:#0b1220;border:none;border-radius:12px;padding:0 1.25rem;height:48px;font-weight:700;cursor:pointer}
 button.send:disabled{opacity:.5}
-.tools-bar{display:flex;gap:.5rem;margin-bottom:.75rem;flex-wrap:wrap}
-.tools-bar select,.tools-bar button{background:#0f172a;border:1px solid var(--border);color:var(--text);padding:.4rem .8rem;border-radius:8px;font-size:.85rem}
-.welcome{text-align:center;padding:3rem 1rem;color:var(--muted)}
-.pro-badge{background:linear-gradient(90deg,#a78bfa,#ec4899);color:#fff;font-size:.7rem;padding:.15rem .5rem;border-radius:999px;margin-left:.4rem}
-.leaderboard{margin-top:2rem}
-.lb-item{display:flex;justify-content:space-between;padding:.45rem 0;font-size:.9rem;border-bottom:1px solid var(--border)}
-.loading{opacity:.7;font-style:italic}
+.tools-bar{display:flex;gap:.45rem;margin-bottom:.65rem;flex-wrap:wrap}
+.tools-bar select,.tools-bar button{background:#0f172a;border:1px solid var(--border);color:var(--text);padding:.35rem .7rem;border-radius:8px;font-size:.82rem}
+.welcome{text-align:center;padding:2.5rem 1rem;color:var(--muted)}
+.welcome img{width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--accent);margin-bottom:.75rem}
+.welcome h2{color:var(--text);margin-bottom:.35rem}
+.lb-item{display:flex;justify-content:space-between;padding:.4rem 0;font-size:.88rem;border-bottom:1px solid var(--border)}
+.loading{opacity:.85;font-style:italic}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:100;padding:1rem}
+.modal-bg.show{display:flex}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.5rem;max-width:420px;width:100%;max-height:90vh;overflow-y:auto}
+.modal h2{margin-bottom:.5rem;font-size:1.2rem}
+.modal ul{margin:1rem 0;padding-left:1.1rem;color:var(--muted);line-height:1.75;font-size:.92rem}
+.modal .price{font-size:1.6rem;color:var(--accent);font-weight:700;margin:.5rem 0}
+.modal .actions{display:flex;gap:.5rem;margin-top:1rem}
+.modal .actions button{flex:1;padding:.7rem;border:none;border-radius:10px;font-weight:700;cursor:pointer}
+.btn-pro{background:linear-gradient(90deg,#a78bfa,#ec4899);color:#fff}
+.btn-close{background:#0f172a;color:var(--text);border:1px solid var(--border)!important}
+.dev-box input{width:100%;padding:.65rem;border-radius:8px;border:1px solid var(--border);background:#0f172a;color:var(--text);margin:.75rem 0}
 </style>
 </head>
 <body>
 <header>
-  <div class="logo">🎓 Study<span>Genie</span></div>
+  <div class="logo-wrap" id="logoClick" title="StudyGenie">
+    <img src="/sparsh.jpg" alt="Sparsh Singhal" onerror="this.style.display='none'">
+    <div>
+      <div class="logo">Study<span>Genie</span></div>
+      <div class="brand-sub">by Sparsh Singhal</div>
+    </div>
+  </div>
   <div class="stats">
     <span id="xp-display">⭐ 0 XP</span>
     <span id="level-display">Level 1</span>
     <span id="quota-display">Free</span>
+    <button class="pro-btn-top" onclick="openProModal()">💎 Pro</button>
   </div>
 </header>
 <main>
   <aside class="sidebar">
+    <div class="creator-card">
+      <img src="/sparsh.jpg" alt="Sparsh" onerror="this.style.display='none'">
+      <div>
+        <div class="name">Sparsh Singhal</div>
+        <div class="role">Creator of StudyGenie</div>
+      </div>
+    </div>
     <h3>Tools</h3>
-    <button class="tool-btn active" data-tool="general">💬 General</button>
+    <button class="tool-btn active" data-tool="general">💬 General Ask</button>
     <button class="tool-btn" data-tool="explain">📖 Explain</button>
     <button class="tool-btn" data-tool="solve">🧮 Solve</button>
     <button class="tool-btn" data-tool="notes">📝 Notes</button>
     <button class="tool-btn" data-tool="pyq">📜 PYQ</button>
     <button class="tool-btn" data-tool="formula">📐 Formula</button>
     <button class="tool-btn" data-tool="planner">📅 Planner</button>
-    <button class="tool-btn" data-tool="mock">🎯 Mock</button>
+    <button class="tool-btn" data-tool="mock">🎯 Mock Test</button>
     <button class="tool-btn" data-tool="roast">🔥 Roast <span class="pro-badge">PRO</span></button>
-    <button class="tool-btn" data-tool="mindmap">🧠 Mindmap <span class="pro-badge">PRO</span></button>
-    <button class="tool-btn" data-tool="mcq">❓ MCQ <span class="pro-badge">PRO</span></button>
-    <button class="tool-btn" data-tool="career">🚀 Career <span class="pro-badge">PRO</span></button>
-    <div class="leaderboard"><h3>🏆 Leaderboard</h3><div id="lb-list">Loading...</div></div>
+    <button class="tool-btn" data-tool="mindmap">🧠 Mind Map <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="mcq">❓ MCQ Generator <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="ncert">📘 NCERT Style <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="derivation">📐 Derivation <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="numerical">🔢 Numerical <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="essay">✍️ Essay / Letter <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="resume">📄 Resume <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="career">🚀 Career Guide <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="tips">💡 Sparsh Tips <span class="pro-badge">PRO</span></button>
+    <button class="pay-side" onclick="openProModal()">💎 Upgrade to Pro – ₹{{ price }}/30 days</button>
+    <h3>🏆 Live Leaderboard</h3>
+    <div id="lb-list">Loading...</div>
   </aside>
   <section class="chat-area">
     <div class="messages" id="messages">
-      <div class="welcome"><h2>Welcome to StudyGenie 🎓</h2><p>Made with ❤️ by Sparsh Singhal</p></div>
+      <div class="welcome">
+        <img src="/sparsh.jpg" alt="Sparsh Singhal" onerror="this.style.display='none'">
+        <h2>Welcome to StudyGenie 🎓</h2>
+        <p>Built with ❤️ by <strong>Sparsh Singhal</strong></p>
+        <p style="margin-top:.75rem;font-size:.9rem">All exams • Free tools + Pro power</p>
+      </div>
     </div>
     <div class="input-area">
       <div class="tools-bar">
         <select id="toolSelect">
-          <option value="general">General</option><option value="explain">Explain</option>
-          <option value="solve">Solve</option><option value="notes">Notes</option>
-          <option value="pyq">PYQ</option><option value="formula">Formula</option>
-          <option value="planner">Planner</option><option value="mock">Mock</option>
-          <option value="roast">Roast (Pro)</option><option value="mindmap">Mindmap (Pro)</option>
-          <option value="mcq">MCQ (Pro)</option><option value="career">Career (Pro)</option>
+          <option value="general">General</option>
+          <option value="explain">Explain</option>
+          <option value="solve">Solve</option>
+          <option value="notes">Notes</option>
+          <option value="pyq">PYQ</option>
+          <option value="formula">Formula</option>
+          <option value="planner">Planner</option>
+          <option value="mock">Mock</option>
+          <option value="roast">Roast (Pro)</option>
+          <option value="mindmap">Mindmap (Pro)</option>
+          <option value="mcq">MCQ (Pro)</option>
+          <option value="ncert">NCERT (Pro)</option>
+          <option value="derivation">Derivation (Pro)</option>
+          <option value="numerical">Numerical (Pro)</option>
+          <option value="essay">Essay (Pro)</option>
+          <option value="resume">Resume (Pro)</option>
+          <option value="career">Career (Pro)</option>
+          <option value="tips">Tips (Pro)</option>
         </select>
         <button onclick="document.getElementById('imageInput').click()">📷 Image</button>
         <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="handleImage(this)">
@@ -1043,53 +1106,195 @@ button.send:disabled{opacity:.5}
     </div>
   </section>
 </main>
+
+<div class="modal-bg" id="proModal">
+  <div class="modal">
+    <h2>💎 StudyGenie Pro</h2>
+    <div class="price">₹{{ price }} <span style="font-size:1rem;color:var(--muted)">/ 30 days</span></div>
+    <ul>
+      <li>Unlimited questions (no daily limit)</li>
+      <li>🔥 Roast Mode</li>
+      <li>🧠 Mind Maps</li>
+      <li>❓ MCQ + Mock Generator</li>
+      <li>📘 NCERT-style explanations</li>
+      <li>📐 Full Derivations</li>
+      <li>🔢 Numerical Solver</li>
+      <li>📷 Image OCR / Doubt Scan</li>
+      <li>✍️ Essay / Letter writing</li>
+      <li>📄 ATS Resume builder</li>
+      <li>🚀 Career guidance</li>
+      <li>💡 Sparsh Tips</li>
+      <li>⭐ 2× XP on every answer</li>
+    </ul>
+    <div class="actions">
+      <button class="btn-pro" onclick="goPay()">Pay & Unlock Pro</button>
+      <button class="btn-close" onclick="closeProModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="devModal">
+  <div class="modal">
+    <h2>🔐 Developer Mode</h2>
+    <p style="color:var(--muted);font-size:.9rem">Enter secret code</p>
+    <input id="devCode" type="password" placeholder="Secret code" class="dev-box" />
+    <div class="actions">
+      <button class="btn-pro" onclick="checkDev()">Unlock</button>
+      <button class="btn-close" onclick="closeDevModal()">Close</button>
+    </div>
+    <p id="devMsg" style="margin-top:.75rem;font-size:.85rem;color:var(--muted)"></p>
+  </div>
+</div>
+
 <script>
-let currentTool="general";
-let clientId=localStorage.getItem("sg_client")||("web_"+Math.random().toString(36).slice(2));
-localStorage.setItem("sg_client",clientId);
-let imageBase64=null;
+const PRICE = {{ price }};
+let currentTool = "general";
+let clientId = localStorage.getItem("sg_client") || ("web_" + Math.random().toString(36).slice(2));
+localStorage.setItem("sg_client", clientId);
+let imageBase64 = null;
+let logoClicks = 0;
+let logoTimer = null;
+
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let actx = null;
+function beep(freq, dur, type="sine", vol=0.08){
+  try{
+    if(!actx) actx = new AudioCtx();
+    const o = actx.createOscillator();
+    const g = actx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.value = vol;
+    o.connect(g); g.connect(actx.destination);
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+    o.stop(actx.currentTime + dur);
+  }catch(e){}
+}
+function soundSend(){ beep(520, 0.08, "sine", 0.07); }
+function soundRecv(){ beep(680, 0.1, "triangle", 0.06); setTimeout(()=>beep(820,0.08,"triangle",0.05), 90); }
+function soundClick(){ beep(400, 0.05, "square", 0.04); }
+function soundError(){ beep(180, 0.15, "sawtooth", 0.06); }
+
 document.querySelectorAll(".tool-btn").forEach(btn=>{
-  btn.addEventListener("click",()=>{
+  btn.addEventListener("click", ()=>{
+    soundClick();
     document.querySelectorAll(".tool-btn").forEach(b=>b.classList.remove("active"));
     btn.classList.add("active");
-    currentTool=btn.dataset.tool;
-    document.getElementById("toolSelect").value=currentTool;
+    currentTool = btn.dataset.tool;
+    document.getElementById("toolSelect").value = currentTool;
   });
 });
-document.getElementById("toolSelect").addEventListener("change",e=>currentTool=e.target.value);
-function handleImage(input){const f=input.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{imageBase64=r.result.split(",")[1];addMessage("user","📷 Image uploaded");};r.readAsDataURL(f);}
-function addMessage(role,text,meta=""){
-  const div=document.createElement("div");div.className="msg "+role;
-  div.innerHTML=text.replace(/\n/g,"<br>")+(meta?`<div class="meta">${meta}</div>`:"");
-  const box=document.getElementById("messages");const w=box.querySelector(".welcome");if(w)w.remove();
-  box.appendChild(div);box.scrollTop=box.scrollHeight;
+document.getElementById("toolSelect").addEventListener("change", e=>{ currentTool = e.target.value; });
+
+document.getElementById("logoClick").addEventListener("click", ()=>{
+  logoClicks++;
+  if(logoTimer) clearTimeout(logoTimer);
+  logoTimer = setTimeout(()=>{ logoClicks = 0; }, 2000);
+  if(logoClicks >= 5){ logoClicks = 0; openDevModal(); }
+});
+
+function openProModal(){ soundClick(); document.getElementById("proModal").classList.add("show"); }
+function closeProModal(){ document.getElementById("proModal").classList.remove("show"); }
+function openDevModal(){ document.getElementById("devModal").classList.add("show"); document.getElementById("devCode").value=""; document.getElementById("devMsg").textContent=""; }
+function closeDevModal(){ document.getElementById("devModal").classList.remove("show"); }
+function goPay(){ window.location.href = "/pay?uid=" + encodeURIComponent("web:" + clientId); }
+
+async function checkDev(){
+  const code = document.getElementById("devCode").value.trim();
+  const msg = document.getElementById("devMsg");
+  try{
+    const res = await fetch("/api/dev/stats?code=" + encodeURIComponent(code));
+    const data = await res.json();
+    if(data.ok){
+      soundRecv();
+      msg.style.color = "#22d3ee";
+      msg.textContent = `✅ Dev OK | Users: ${data.total_users} | DAU: ${data.dau_today} | Pro: ${data.pro_users} | Live: ${data.live_approx} | Qs: ${data.total_questions}`;
+    }else{
+      soundError();
+      msg.style.color = "#f87171";
+      msg.textContent = "Wrong code";
+    }
+  }catch(e){ soundError(); msg.textContent = "Error reaching server"; }
 }
+
+function handleImage(input){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=>{ imageBase64 = reader.result.split(",")[1]; addMessage("user","📷 Image uploaded (OCR)"); soundClick(); };
+  reader.readAsDataURL(file);
+}
+
+function addMessage(role, text, meta=""){
+  const div = document.createElement("div");
+  div.className = "msg " + role;
+  div.innerHTML = text.replace(/\n/g,"<br>") + (meta ? `<div class="meta">${meta}</div>` : "");
+  const box = document.getElementById("messages");
+  const welcome = box.querySelector(".welcome");
+  if(welcome) welcome.remove();
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+
 async function ask(){
-  const q=document.getElementById("question").value.trim();
-  if(!q&&!imageBase64)return;
-  const btn=document.getElementById("sendBtn");btn.disabled=true;btn.textContent="...";
-  addMessage("user",q||"📷 Image");document.getElementById("question").value="";
-  const loading=document.createElement("div");loading.className="msg bot loading";loading.textContent="Thinking... ⏳";
+  const q = document.getElementById("question").value.trim();
+  if(!q && !imageBase64) return;
+  const btn = document.getElementById("sendBtn");
+  btn.disabled = true; btn.textContent = "...";
+  soundSend();
+  addMessage("user", q || "📷 Image question");
+  document.getElementById("question").value = "";
+  const loading = document.createElement("div");
+  loading.className = "msg bot loading";
+  loading.textContent = "Sparsh Singhal ka StudyGenie abhi soch raha hai... ⏳";
   document.getElementById("messages").appendChild(loading);
   try{
-    const res=await fetch("/api/webask",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({question:q,tool:currentTool,client_id:clientId,image_base64:imageBase64||undefined})});
-    const data=await res.json();loading.remove();
-    addMessage("bot",data.answer||"No response",data.elapsed?`⚡ ${data.elapsed}s`:"");
-    if(data.xp!==undefined){document.getElementById("xp-display").textContent=`⭐ ${data.xp} XP`;document.getElementById("level-display").textContent=`Level ${data.level}`;}
-    if(data.quota){const qq=data.quota;document.getElementById("quota-display").textContent=qq.daily_left===-1?"PRO ∞":`Free: ${qq.daily_left} left`;}
-  }catch(e){loading.remove();addMessage("bot","😔 Network error.");}
-  imageBase64=null;btn.disabled=false;btn.textContent="Send";
+    const res = await fetch("/api/webask", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ question: q, tool: currentTool, client_id: clientId, image_base64: imageBase64 || undefined })
+    });
+    const data = await res.json();
+    loading.remove();
+    addMessage("bot", data.answer || "No response", data.elapsed ? `⚡ ${data.elapsed}s` : "");
+    soundRecv();
+    if(data.xp !== undefined){
+      document.getElementById("xp-display").textContent = `⭐ ${data.xp} XP`;
+      document.getElementById("level-display").textContent = `Level ${data.level}`;
+    }
+    if(data.quota){
+      const qq = data.quota;
+      document.getElementById("quota-display").textContent = qq.daily_left === -1 ? "PRO ∞" : `Free: ${qq.daily_left} left`;
+    }
+  }catch(err){
+    loading.remove();
+    addMessage("bot", "😔 Network error. Please try again.");
+    soundError();
+  }
+  imageBase64 = null;
+  btn.disabled = false; btn.textContent = "Send";
 }
-document.getElementById("question").addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();ask();}});
+
+document.getElementById("question").addEventListener("keydown", e=>{
+  if(e.key === "Enter" && !e.shiftKey){ e.preventDefault(); ask(); }
+});
+
 async function loadLB(){
-  try{const res=await fetch("/api/leaderboard");const data=await res.json();
-    const list=document.getElementById("lb-list");
-    if(!data.board||!data.board.length){list.innerHTML="<div style='color:#64748b'>No one yet</div>";return;}
-    list.innerHTML=data.board.slice(0,8).map(e=>`<div class="lb-item"><span>${e.rank}. ${e.name}</span><span>L${e.level}</span></div>`).join("");
+  try{
+    const res = await fetch("/api/leaderboard");
+    const data = await res.json();
+    const list = document.getElementById("lb-list");
+    if(!data.board || !data.board.length){
+      list.innerHTML = "<div style='color:#64748b;font-size:.85rem'>No one yet</div>";
+      return;
+    }
+    list.innerHTML = data.board.slice(0,8).map(e=>
+      `<div class="lb-item"><span>${e.rank}. ${e.name}</span><span>L${e.level}</span></div>`
+    ).join("");
   }catch{}
 }
-loadLB();setInterval(loadLB,30000);
+loadLB();
+setInterval(loadLB, 30000);
 </script>
 </body>
 </html>
@@ -1162,9 +1367,17 @@ async function startPay(){
 app = Flask(__name__)
 
 
+@app.route("/sparsh.jpg")
+def serve_photo():
+    try:
+        return send_from_directory(".", "sparsh.jpg")
+    except Exception:
+        return "", 404
+
+
 @app.route("/")
 def home():
-    return render_template_string(FRONTEND_HTML)
+    return render_template_string(FRONTEND_HTML, price=config.PRO_PRICE_INR)
 
 
 @app.route("/pay")
@@ -1203,7 +1416,7 @@ def health():
         "ok": True, "redis": redis_ok,
         "groq": ai.groq_client is not None, "gemini": ai.gemini_client is not None,
         "primary": config.AI_PRIMARY,
-        "version": "StudyGenie v3.3 (Stats + Pay + Dual AI)",
+        "version": "StudyGenie v3.4 (UI+Pay+Stats+Dual AI)",
         "creator": "Sparsh Singhal",
     })
 
