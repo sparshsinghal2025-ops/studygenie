@@ -3,7 +3,7 @@ StudyGenie by Sparsh Singhal
 Fully Gamified Multi-Platform E-Learning Bot
 Telegram + WhatsApp + Web Dashboard
 Groq (Primary) + Gemini (Fallback) | All Exams | Stats | Razorpay Pro
-UI: Branding + Pro Modal + Sounds + Dev Mode + Name Input
+UI: Branding + Pro Modal + Sounds + Dev Mode + Name Input + Markdown Render
 """
 
 from __future__ import annotations
@@ -509,7 +509,8 @@ class AIService:
         base = (
             "You are StudyGenie by Sparsh Singhal – India's fun gamified AI tutor for Class 6-12, "
             "JEE, NEET, GATE, UPSC, SSC, Banking, CA, CUET, Olympiads. Reply in natural Hinglish. "
-            "Be clear, exam-oriented, encouraging, use emojis.\n\n"
+            "Be clear, exam-oriented, encouraging, use emojis. "
+            "Use clean Markdown: headings, bold, bullet lists, and simple tables when helpful.\n\n"
         )
         if is_pro:
             base += "PRO user: give deeper explanations, tips, memory tricks, common mistakes, exam strategy.\n\n"
@@ -548,7 +549,7 @@ class AIService:
             resp = self.groq_client.chat.completions.create(
                 model=config.GROQ_MODEL,
                 messages=[
-                    {"role": "system", "content": "You are StudyGenie. Reply in Hinglish."},
+                    {"role": "system", "content": "You are StudyGenie. Reply in Hinglish. Use clean Markdown."},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.7,
@@ -629,7 +630,7 @@ ai = AIService()
 
 
 # ============================================================================
-# TELEGRAM
+# TELEGRAM (same as before)
 # ============================================================================
 
 async def typing(update: Update) -> None:
@@ -952,7 +953,7 @@ def process_whatsapp_message(from_number: str, text: str, profile_name: str = ""
 
 
 # ============================================================================
-# FRONTEND
+# FRONTEND with Markdown renderer
 # ============================================================================
 
 FRONTEND_HTML = r"""
@@ -963,7 +964,7 @@ FRONTEND_HTML = r"""
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StudyGenie by Sparsh Singhal</title>
 <style>
-:root{--bg:#0b1220;--card:#111827;--accent:#22d3ee;--text:#f1f5f9;--muted:#94a3b8;--border:rgba(255,255,255,0.08);--pro:#a78bfa}
+:root{--bg:#0b1220;--card:#111827;--accent:#22d3ee;--text:#f1f5f9;--muted:#94a3b8;--border:rgba(255,255,255,0.08)}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
 header{background:linear-gradient(90deg,#0f172a,#1e1b4b);padding:.85rem 1.25rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50}
@@ -987,10 +988,21 @@ main{flex:1;display:grid;grid-template-columns:280px 1fr;max-width:1400px;margin
 .creator-card .role{font-size:.72rem;color:var(--muted)}
 .chat-area{display:flex;flex-direction:column;height:calc(100vh - 64px)}
 .messages{flex:1;overflow-y:auto;padding:1.25rem;display:flex;flex-direction:column;gap:1rem}
-.msg{max-width:85%;padding:.95rem 1.1rem;border-radius:16px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
-.msg.user{align-self:flex-end;background:linear-gradient(135deg,#0891b2,#0e7490);border-bottom-right-radius:4px}
+.msg{max-width:88%;padding:.95rem 1.1rem;border-radius:16px;line-height:1.6;word-break:break-word}
+.msg.user{align-self:flex-end;background:linear-gradient(135deg,#0891b2,#0e7490);border-bottom-right-radius:4px;white-space:pre-wrap}
 .msg.bot{align-self:flex-start;background:var(--card);border:1px solid var(--border);border-bottom-left-radius:4px}
-.msg .meta{font-size:.72rem;color:var(--muted);margin-top:.5rem}
+.msg.bot h1,.msg.bot h2,.msg.bot h3,.msg.bot h4{color:#f1f5f9;margin:.7rem 0 .35rem;line-height:1.3}
+.msg.bot h1{font-size:1.2rem}.msg.bot h2{font-size:1.1rem}.msg.bot h3{font-size:1.02rem}
+.msg.bot p{margin:.35rem 0}
+.msg.bot ul,.msg.bot ol{margin:.4rem 0 .4rem 1.25rem}
+.msg.bot li{margin:.2rem 0}
+.msg.bot table{border-collapse:collapse;width:100%;font-size:.88rem;margin:.55rem 0}
+.msg.bot th,.msg.bot td{border:1px solid var(--border);padding:.4rem .55rem;text-align:left}
+.msg.bot th{background:#0f172a}
+.msg.bot code{background:#0f172a;padding:.1rem .35rem;border-radius:4px;font-size:.88em}
+.msg.bot pre{background:#0f172a;padding:.75rem;border-radius:8px;overflow:auto;margin:.5rem 0}
+.msg.bot hr{border:none;border-top:1px solid var(--border);margin:.75rem 0}
+.msg .meta{font-size:.72rem;color:var(--muted);margin-top:.55rem}
 .input-area{padding:1rem 1.25rem 1.25rem;background:var(--card);border-top:1px solid var(--border)}
 .input-row{display:flex;gap:.65rem;align-items:flex-end}
 textarea{flex:1;background:#0f172a;border:1px solid var(--border);border-radius:12px;color:var(--text);padding:.85rem 1rem;resize:none;font-size:1rem;min-height:48px;outline:none}
@@ -1112,19 +1124,11 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
     <h2>💎 StudyGenie Pro</h2>
     <div class="price">₹{{ price }} <span style="font-size:1rem;color:var(--muted)">/ 30 days</span></div>
     <ul>
-      <li>Unlimited questions (no daily limit)</li>
-      <li>🔥 Roast Mode</li>
-      <li>🧠 Mind Maps</li>
-      <li>❓ MCQ + Mock Generator</li>
-      <li>📘 NCERT-style explanations</li>
-      <li>📐 Full Derivations</li>
-      <li>🔢 Numerical Solver</li>
-      <li>📷 Image OCR / Doubt Scan</li>
-      <li>✍️ Essay / Letter writing</li>
-      <li>📄 ATS Resume builder</li>
-      <li>🚀 Career guidance</li>
-      <li>💡 Sparsh Tips</li>
-      <li>⭐ 2× XP on every answer</li>
+      <li>Unlimited questions</li>
+      <li>🔥 Roast • 🧠 Mind Maps • ❓ MCQ</li>
+      <li>📘 NCERT • 📐 Derivation • 🔢 Numerical</li>
+      <li>📷 Image OCR • ✍️ Essay • 📄 Resume</li>
+      <li>🚀 Career • 💡 Tips • ⭐ 2× XP</li>
     </ul>
     <div class="actions">
       <button class="btn-pro" onclick="goPay()">Pay & Unlock Pro</button>
@@ -1187,6 +1191,66 @@ function soundSend(){ beep(520, 0.08, "sine", 0.07); }
 function soundRecv(){ beep(680, 0.1, "triangle", 0.06); setTimeout(()=>beep(820,0.08,"triangle",0.05), 90); }
 function soundClick(){ beep(400, 0.05, "square", 0.04); }
 function soundError(){ beep(180, 0.15, "sawtooth", 0.06); }
+
+function escapeHtml(s){
+  return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+function mdToHtml(text){
+  if(!text) return "";
+  let s = escapeHtml(text);
+
+  s = s.replace(/```([\s\S]*?)```/g, function(_, code){
+    return "<pre><code>" + code.trim() + "</code></pre>";
+  });
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  s = s.replace(/^######\s+(.*)$/gm, "<h6>$1</h6>");
+  s = s.replace(/^#####\s+(.*)$/gm, "<h5>$1</h5>");
+  s = s.replace(/^####\s+(.*)$/gm, "<h4>$1</h4>");
+  s = s.replace(/^###\s+(.*)$/gm, "<h3>$1</h3>");
+  s = s.replace(/^##\s+(.*)$/gm, "<h2>$1</h2>");
+  s = s.replace(/^#\s+(.*)$/gm, "<h1>$1</h1>");
+
+  s = s.replace(/\*\*\*([^*]+)\*\*\*/g, "<strong><em>$1</em></strong>");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+
+  // tables
+  s = s.replace(/(?:^|\n)((?:\|.+\|(?:\n|$))+)/g, function(_, block){
+    const rows = block.trim().split("\n").filter(Boolean);
+    if(rows.length < 1) return block;
+    let html = "<div style='overflow:auto'><table>";
+    let headerDone = false;
+    rows.forEach((row) => {
+      if(/^\|?\s*[-:| ]+\s*\|?$/.test(row)) return;
+      const cells = row.replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+      if(!headerDone){
+        html += "<tr>" + cells.map(c => "<th>"+c+"</th>").join("") + "</tr>";
+        headerDone = true;
+      } else {
+        html += "<tr>" + cells.map(c => "<td>"+c+"</td>").join("") + "</tr>";
+      }
+    });
+    html += "</table></div>";
+    return "\n" + html + "\n";
+  });
+
+  s = s.replace(/(?:^|\n)((?:\s*[-*]\s+.+\n?)+)/g, function(_, block){
+    const items = block.trim().split("\n").map(line => line.replace(/^\s*[-*]\s+/, "").trim()).filter(Boolean);
+    return "<ul>" + items.map(i => "<li>"+i+"</li>").join("") + "</ul>";
+  });
+  s = s.replace(/(?:^|\n)((?:\s*\d+\.\s+.+\n?)+)/g, function(_, block){
+    const items = block.trim().split("\n").map(line => line.replace(/^\s*\d+\.\s+/, "").trim()).filter(Boolean);
+    return "<ol>" + items.map(i => "<li>"+i+"</li>").join("") + "</ol>";
+  });
+
+  s = s.replace(/^---+$/gm, "<hr>");
+  s = s.replace(/\n/g, "<br>");
+  s = s.replace(/(?:<br>\s*)+(<\/?(?:h[1-6]|ul|ol|li|table|tr|pre|div|hr))/gi, "$1");
+  s = s.replace(/(<\/?(?:h[1-6]|ul|ol|table|pre|div|hr)[^>]*>)(?:\s*<br>)+/gi, "$1");
+  return s;
+}
 
 document.querySelectorAll(".tool-btn").forEach(btn=>{
   btn.addEventListener("click", ()=>{
@@ -1297,7 +1361,8 @@ function handleImage(input){
 function addMessage(role, text, meta=""){
   const div = document.createElement("div");
   div.className = "msg " + role;
-  div.innerHTML = text.replace(/\n/g,"<br>") + (meta ? `<div class="meta">${meta}</div>` : "");
+  const body = (role === "bot") ? mdToHtml(text) : escapeHtml(text).replace(/\n/g,"<br>");
+  div.innerHTML = body + (meta ? `<div class="meta">${escapeHtml(meta)}</div>` : "");
   const box = document.getElementById("messages");
   const welcome = box.querySelector(".welcome");
   if(welcome) welcome.remove();
@@ -1502,7 +1567,7 @@ def health():
         "ok": True, "redis": redis_ok,
         "groq": ai.groq_client is not None, "gemini": ai.gemini_client is not None,
         "primary": config.AI_PRIMARY,
-        "version": "StudyGenie v3.5 (Name+UI+Pay+Stats)",
+        "version": "StudyGenie v3.6 (Markdown+Name+UI+Pay)",
         "creator": "Sparsh Singhal",
     })
 
