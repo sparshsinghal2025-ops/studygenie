@@ -1787,6 +1787,16 @@ def setup():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
-
+@app.route("/api/dev/activate-pro", methods=["POST"])
+def dev_activate_pro():
+    data = request.get_json(silent=True) or {}
+    if (data.get("code") or "") != config.DEV_SECRET:
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    uid = (data.get("uid") or "").strip()
+    if not uid:
+        return jsonify({"ok": False, "error": "uid required"}), 400
+    db.ensure_user(uid, full_name="Pro Tester", platform="web")
+    ok = db.activate_pro(uid, days=30)
+    return jsonify({"ok": bool(ok), "uid": uid, "plan": "pro", "days": 30})
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
