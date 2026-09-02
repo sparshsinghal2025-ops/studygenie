@@ -1273,7 +1273,7 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
           <option value="career">Career (Pro)</option>
           <option value="tips">Tips (Pro)</option>
         </select>
-        <button onclick="document.getElementById('imageInput').click()">📷 Image</button>
+        <button onclick="onImageButtonClick()">📷 Image</button>
         <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="handleImage(this)">
       </div>
       <div class="input-row">
@@ -1332,6 +1332,66 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
 const PRICE = {{ price }};
 let currentTool = "general";
 
+
+
+function onImageButtonClick(){
+  if(!isProUser){
+    try{ soundError(); }catch(e){}
+    alert("Only for pro plan users");
+    return;
+  }
+  const el = document.getElementById("imageInput");
+  if(el) el.click();
+}
+function handleImage(input){
+  // Free users: block immediately with popup
+  if(!isProUser){
+    try{ soundError(); }catch(e){}
+    alert("Only for pro plan users");
+    try{ input.value = ""; }catch(e){}
+    imageBase64 = null;
+    return;
+  }
+  const file = input && input.files && input.files[0];
+  if(!file){
+    try{ soundError(); }catch(e){}
+    addMessage("bot", "No image selected.");
+    return;
+  }
+  if(!file.type || !file.type.startsWith("image/")){
+    try{ soundError(); }catch(e){}
+    addMessage("bot", "Please choose an image file (JPG/PNG/WebP).");
+    return;
+  }
+  if(file.size > 4.5 * 1024 * 1024){
+    try{ soundError(); }catch(e){}
+    addMessage("bot", "Image too large. Please use under ~4MB.");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const dataUrl = String(reader.result || "");
+      const parts = dataUrl.split(",");
+      imageBase64 = parts.length > 1 ? parts[1] : "";
+      if(!imageBase64){
+        addMessage("bot", "Could not read image.");
+        return;
+      }
+      window._imageMime = file.type || "image/jpeg";
+      addMessage("user", "📷 Image ready: " + (file.name || "photo") + " — ab question likho (optional) aur 🔥 Fire dabao");
+      try{ soundClick(); }catch(e){}
+    }catch(err){
+      addMessage("bot", "Image read failed.");
+    }
+  };
+  reader.onerror = () => {
+    addMessage("bot", "Image read error.");
+    try{ soundError(); }catch(e){}
+  };
+  reader.readAsDataURL(file);
+  try{ input.value = ""; }catch(e){}
+}
 
 function openNameModal(){
   const m = document.getElementById("nameModal");
@@ -1411,6 +1471,11 @@ async function syncProfile(){
       const l = document.getElementById("level-display");
       if(l) l.textContent = `Level ${data.level}`;
     }
+    if(data.plan === "pro" || (data.quota && data.quota.daily_left === -1)){
+      isProUser = true;
+    } else {
+      isProUser = false;
+    }
     if(data.quota){
       const q = document.getElementById("quota-display");
       if(q) q.textContent = data.quota.daily_left === -1 ? "PRO ∞" : `Free: ${data.quota.daily_left} left`;
@@ -1443,6 +1508,7 @@ if(_toolSelect){
 let clientId = localStorage.getItem("sg_client") || ("web_" + Math.random().toString(36).slice(2));
 localStorage.setItem("sg_client", clientId);
 let imageBase64 = null;
+let isProUser = false;
 let logoClicks = 0;
 let logoTimer = null;
 
@@ -1598,7 +1664,7 @@ async function ask(){
     const res = await fetch("/api/webask", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ question: q, tool: currentTool, client_id: clientId, image_base64: imageBase64 || undefined })
+      body: JSON.stringify({ question: q, tool: currentTool, client_id: clientId, image_base64: imageBase64 || undefined, image_mime: window._imageMime || "image/jpeg" })
     });
     const data = await res.json();
     loading.remove();
@@ -1612,6 +1678,7 @@ async function ask(){
     }
     if(data.quota){
       const qq = data.quota;
+      isProUser = (qq.daily_left === -1);
       document.getElementById("quota-display").textContent = qq.daily_left === -1 ? "PRO ∞" : `Free: ${qq.daily_left} left`;
     }
   }catch(err){
