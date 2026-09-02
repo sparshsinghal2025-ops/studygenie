@@ -541,50 +541,146 @@ class AIService:
 
     def _templates(self, base: str, question: str, is_pro: bool = False) -> Dict[str, str]:
         n_pyq = 20 if is_pro else 10
+        n_mock = 15 if is_pro else 10
         return {
-            "general": f"{base}Student's Question:\n{question}",
-            "explain": f"{base}Explain simply with examples and analogy.\n\n{question}",
-            "solve": f"{base}Solve step-by-step with final answer.\n\n{question}",
-            "notes": f"{base}Short exam-ready notes + key points + formulas.\n\n{question}",
+            "general": (
+                f"{base}"
+                "Tool=GENERAL. Answer the student's question helpfully.\n"
+                "Do not force a special format unless asked.\n\n"
+                f"Student:\n{question}"
+            ),
+            "explain": (
+                f"{base}"
+                "Tool=EXPLAIN only. Explain the concept simply with analogy + examples.\n"
+                "Do NOT give a full study plan, mock test, or only formula list.\n\n"
+                f"Topic/Question:\n{question}"
+            ),
+            "solve": (
+                f"{base}"
+                "Tool=SOLVE only. Solve step-by-step. Show working. Box final answer.\n"
+                "If input is only a topic (not a problem), ask for the exact problem OR give 1 worked example.\n\n"
+                f"Problem:\n{question}"
+            ),
+            "notes": (
+                f"{base}"
+                "Tool=NOTES only. Short exam-ready notes: bullets, key points, formulas.\n"
+                "No 7-day plan. No full mock test.\n\n"
+                f"Topic:\n{question}"
+            ),
             "pyq": (
                 f"{base}"
-                "User message may be either (1) a full past-year question to solve, "
-                "or (2) a topic/chapter with optional filters.\n"
-                "If it is a full question: solve step-by-step with final answer, tips, common mistakes.\n"
-                f"If it is a topic request: generate exactly {n_pyq} exam-style questions STRICTLY on the given topic only "
-                "(do not drift to unrelated chapters). Exam level: JEE/NEET/GATE/SSC/University as suitable.\n"
-                "TOPIC FILTER:\n"
-                "- Stay 100% inside the named topic/subtopic.\n"
-                "- If user names exam (JEE/NEET/GATE/SSC/DTU/etc), match that style and difficulty.\n"
-                "- If user names year range (e.g. 2018-2024), prefer that era's pattern.\n"
-                "PREVIOUS YEAR TRENDS (must include a short section before questions):\n"
-                "- 4-6 bullet trends: what is frequently asked, weightage feel, repeated concepts, recent shift.\n"
-                "- Mention typical years/exams only when reasonably known; never invent exact paper codes.\n"
-                "Question mix rules:\n"
-                "- objective/MCQ only: all MCQs with 4 options, correct answer, 1-line explanation.\n"
-                "- subjective only: short/long PYQs with model answers.\n"
-                "- Default / both: roughly half objective + half subjective.\n"
-                "Format: (1) Trends box (2) Numbered questions (3) Answer key at end.\n\n"
+                "Tool=PYQ only.\n"
+                "User message may be (1) a full past question to solve, or (2) a topic with optional filters.\n"
+                "If full question: solve step-by-step with tips and common mistakes.\n"
+                f"If topic: generate exactly {n_pyq} exam-style questions STRICTLY on that topic.\n"
+                "TOPIC FILTER: stay on topic; match exam style if named (JEE/NEET/GATE/SSC/DTU).\n"
+                "PREVIOUS YEAR TRENDS: 4-6 bullets before questions (frequent ideas, weightage feel). Never invent paper codes.\n"
+                "Mix: objective only / subjective only / default BOTH (half-half).\n"
+                "Format: Trends → Numbered questions → Answer key.\n\n"
                 f"User input:\n{question}"
             ),
-            "formula": f"{base}Important formulas with short notes. Put every formula in $$ ... $$ display math. Add a plain-English line under each formula.\n\n{question}",
-            "planner": (f"{base}""TASK: Create ONLY a realistic study PLANNER (timetable), not notes or a topic guide.\n""Hard rules:\n""- Output a day-wise plan (default 7 days unless user asks otherwise).\n""- Each day: topics/subtopics, time slots, practice task, revision flag.\n""- Use a Markdown table: Day | Focus | Tasks | Duration | Outcome.\n""- End with tips: total hours/week, what to skip, how to measure progress.\n""- Do NOT write a long theory explanation of the subject.\n""- Do NOT replace the plan with definitions, pipelines, or concept notes.\n\n"f"User request / topic:\n{question}"),
-            "mock": f"{base}Generate 5 MCQs with answers and explanations.\n\nTopic: {question}",
-            "roast": f"{base}Hinglish savage but educational roast while teaching.\n\nDoubt: {question}",
-            "ncert": f"{base}NCERT-style clear explanation.\n\n{question}",
-            "mindmap": f"{base}Hierarchical text mind-map.\n\nTopic: {question}",
-            "important": f"{base}10-12 high-yield important questions with short answers.\n\nTopic: {question}",
-            "diagram": f"{base}Explain the diagram in detail for exams.\n\n{question}",
-            "derivation": f"{base}Full step-by-step derivation.\n\n{question}",
-            "numerical": f"{base}Numerical: formula, substitution, final answer with units.\n\n{question}",
-            "mcq": f"{base}8 MCQs (easy-medium-hard) with answers.\n\nTopic: {question}",
-            "essay": f"{base}Well-structured formal writing as requested.\n\n{question}",
-            "resume": f"{base}Clean ATS-friendly student resume.\n\n{question}",
-            "youtube": f"{base}YouTube-style summary + 5 revision questions.\n\n{question}",
-            "career": f"{base}Practical career guidance for Indian students.\n\n{question}",
-            "tips": f"{base}Powerful study tips and motivation.\n\n{question}",
-            "ocr": f"{base}Read the image and solve/explain everything.\n\n{question}",
+            "formula": (
+                f"{base}"
+                "Tool=FORMULA only. List important formulas with short notes.\n"
+                "Put each formula in $$ ... $$. One plain-English line under each.\n"
+                "No full theory chapter. No mock test.\n\n"
+                f"Topic:\n{question}"
+            ),
+            "planner": (
+                f"{base}"
+                "Tool=PLANNER only. Output ONLY a day-wise study timetable, NOT notes/guide.\n"
+                "Default 7 days unless user says otherwise.\n"
+                "Markdown table: Day | Focus | Tasks | Duration | Outcome.\n"
+                "End with weekly hours + progress tips.\n"
+                "FORBIDDEN: long theory, definitions-only guide, pipeline explanation without schedule.\n\n"
+                f"User request:\n{question}"
+            ),
+            "mock": (
+                f"{base}"
+                "Tool=MOCK TEST only.\n"
+                f"Create a timed-style mock: exactly {n_mock} questions on the given topic/subject.\n"
+                "Structure:\n"
+                "1) Exam header (topic, marks, suggested time)\n"
+                "2) Questions numbered (mix MCQ + short if useful)\n"
+                "3) Do NOT reveal answers until after a clear separator line 'ANSWER KEY'\n"
+                "4) Answer key with brief explanations\n"
+                "FORBIDDEN: teaching notes or chapter summary instead of a test.\n"
+                "If user only says a broad subject (e.g. physics), pick a high-yield subtopic set and still make a mock.\n\n"
+                f"Topic:\n{question}"
+            ),
+            "roast": (
+                f"{base}"
+                "Tool=ROAST. Hinglish savage but educational roast while teaching the concept.\n\n"
+                f"Doubt:\n{question}"
+            ),
+            "ncert": (
+                f"{base}"
+                "Tool=NCERT style. Clear textbook-like explanation.\n\n"
+                f"Topic:\n{question}"
+            ),
+            "mindmap": (
+                f"{base}"
+                "Tool=MINDMAP only. Hierarchical text mind-map (branches). No long paragraphs.\n\n"
+                f"Topic:\n{question}"
+            ),
+            "important": (
+                f"{base}"
+                "Tool=IMPORTANT Qs. 10-12 high-yield questions with short answers.\n\n"
+                f"Topic:\n{question}"
+            ),
+            "diagram": (
+                f"{base}"
+                "Tool=DIAGRAM explain. Describe/explain diagram for exams.\n\n"
+                f"Input:\n{question}"
+            ),
+            "derivation": (
+                f"{base}"
+                "Tool=DERIVATION only. Full step-by-step derivation.\n\n"
+                f"Derive:\n{question}"
+            ),
+            "numerical": (
+                f"{base}"
+                "Tool=NUMERICAL only. Formula, substitution, final answer with units.\n\n"
+                f"Problem:\n{question}"
+            ),
+            "mcq": (
+                f"{base}"
+                "Tool=MCQ GENERATOR only. 8 MCQs (easy-medium-hard) with answers.\n"
+                "Not a full syllabus notes dump.\n\n"
+                f"Topic:\n{question}"
+            ),
+            "essay": (
+                f"{base}"
+                "Tool=ESSAY/LETTER. Well-structured formal writing as requested.\n\n"
+                f"Request:\n{question}"
+            ),
+            "resume": (
+                f"{base}"
+                "Tool=RESUME. Clean ATS-friendly student resume content.\n\n"
+                f"Details:\n{question}"
+            ),
+            "youtube": (
+                f"{base}"
+                "Tool=YOUTUBE summary style + 5 revision questions.\n\n"
+                f"Topic:\n{question}"
+            ),
+            "career": (
+                f"{base}"
+                "Tool=CAREER guidance for Indian students.\n\n"
+                f"Question:\n{question}"
+            ),
+            "tips": (
+                f"{base}"
+                "Tool=STUDY TIPS only.\n\n"
+                f"Request:\n{question}"
+            ),
+            "ocr": (
+                f"{base}"
+                "Tool=OCR. Read the image and solve/explain.\n\n"
+                f"Extra:\n{question}"
+            ),
         }
+
 
     def _call_groq(self, prompt: str, max_tokens: int = 1500) -> Optional[str]:
         if not self.groq_client:
@@ -1377,6 +1473,8 @@ function addMessage(role, text, meta=""){
 }
 
 async function ask(){
+  const sel = document.getElementById("toolSelect");
+  if(sel && sel.value) currentTool = sel.value;
   const q = document.getElementById("question").value.trim();
   if(!q && !imageBase64) return;
   const btn = document.getElementById("sendBtn");
@@ -1689,6 +1787,7 @@ def web_ask():
         f"\n\n━━━━━━━━━━━━━━━\n"
         f"⚡ {elapsed:.1f}s"
         f"{' | 📦 cache' if cached else ''}"
+        f" | 🛠️ {tool}"
         f" | ⭐ +{xp_gain} XP{' (2× Pro)' if is_pro else ''} | Level {level}\n"
         f"- made with love by Sparsh Singhal"
     )
