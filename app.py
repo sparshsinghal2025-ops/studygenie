@@ -568,7 +568,7 @@ class AIService:
                 f"User input:\n{question}"
             ),
             "formula": f"{base}Important formulas with short notes. Put every formula in $$ ... $$ display math. Add a plain-English line under each formula.\n\n{question}",
-            "planner": f"{base}Create a realistic 7-day study plan.\n\nTopic: {question}",
+            "planner": (f"{base}""TASK: Create ONLY a realistic study PLANNER (timetable), not notes or a topic guide.\n""Hard rules:\n""- Output a day-wise plan (default 7 days unless user asks otherwise).\n""- Each day: topics/subtopics, time slots, practice task, revision flag.\n""- Use a Markdown table: Day | Focus | Tasks | Duration | Outcome.\n""- End with tips: total hours/week, what to skip, how to measure progress.\n""- Do NOT write a long theory explanation of the subject.\n""- Do NOT replace the plan with definitions, pipelines, or concept notes.\n\n"f"User request / topic:\n{question}"),
             "mock": f"{base}Generate 5 MCQs with answers and explanations.\n\nTopic: {question}",
             "roast": f"{base}Hinglish savage but educational roast while teaching.\n\nDoubt: {question}",
             "ncert": f"{base}NCERT-style clear explanation.\n\n{question}",
@@ -1214,6 +1214,28 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
 <script>
 const PRICE = {{ price }};
 let currentTool = "general";
+
+function setTool(tool){
+  if(!tool) return;
+  currentTool = tool;
+  document.querySelectorAll(".tool-btn").forEach(b => {
+    b.classList.toggle("active", b.getAttribute("data-tool") === tool);
+  });
+  const sel = document.getElementById("toolSelect");
+  if(sel){
+    // if option missing, keep value anyway
+    sel.value = tool;
+  }
+  try{ soundClick(); }catch(e){}
+}
+document.querySelectorAll(".tool-btn").forEach(btn => {
+  btn.addEventListener("click", () => setTool(btn.getAttribute("data-tool")));
+});
+const _toolSelect = document.getElementById("toolSelect");
+if(_toolSelect){
+  _toolSelect.addEventListener("change", () => setTool(_toolSelect.value));
+}
+
 let clientId = localStorage.getItem("sg_client") || ("web_" + Math.random().toString(36).slice(2));
 localStorage.setItem("sg_client", clientId);
 let imageBase64 = null;
