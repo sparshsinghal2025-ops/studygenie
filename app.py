@@ -567,7 +567,7 @@ class AIService:
                 "Format: (1) Trends box (2) Numbered questions (3) Answer key at end.\n\n"
                 f"User input:\n{question}"
             ),
-            "formula": f"{base}Important formulas with short notes.\n\n{question}",
+            "formula": f"{base}Important formulas with short notes. Put every formula in $$ ... $$ display math. Add a plain-English line under each formula.\n\n{question}",
             "planner": f"{base}Create a realistic 7-day study plan.\n\nTopic: {question}",
             "mock": f"{base}Generate 5 MCQs with answers and explanations.\n\nTopic: {question}",
             "roast": f"{base}Hinglish savage but educational roast while teaching.\n\nDoubt: {question}",
@@ -1004,6 +1004,10 @@ FRONTEND_HTML = r"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StudyGenie by Sparsh Singhal</title>
@@ -1244,7 +1248,13 @@ function escapeHtml(s){
 
 function mdToHtml(text){
   if(!text) return "";
-  let s = escapeHtml(text);
+  const slots = [];
+  // Protect math blocks before HTML escape / markdown
+  let s = String(text).replace(/\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$[^$\n]+\$/g, function(m){
+    slots.push(m);
+    return "%%MATH" + (slots.length - 1) + "%%";
+  });
+  s = escapeHtml(s);
 
   s = s.replace(/```([\s\S]*?)```/g, function(_, code){
     return "<pre><code>" + code.trim() + "</code></pre>";
@@ -1272,138 +1282,65 @@ function mdToHtml(text){
       if(/^\|?\s*[-:| ]+\s*\|?$/.test(row)) return;
       const cells = row.replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
       if(!headerDone){
-        html += "<tr>" + cells.map(c => "<th>"+c+"</th>").join("") + "</tr>";
+        html += "<thead><tr>" + cells.map(c => "<th>" + c + "</th>").join("") + "</tr></thead><tbody>";
         headerDone = true;
       } else {
-        html += "<tr>" + cells.map(c => "<td>"+c+"</td>").join("") + "</tr>";
+        html += "<tr>" + cells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
       }
     });
-    html += "</table></div>";
+    html += "</tbody></table></div>";
     return "\n" + html + "\n";
   });
 
-  s = s.replace(/(?:^|\n)((?:\s*[-*]\s+.+\n?)+)/g, function(_, block){
-    const items = block.trim().split("\n").map(line => line.replace(/^\s*[-*]\s+/, "").trim()).filter(Boolean);
-    return "<ul>" + items.map(i => "<li>"+i+"</li>").join("") + "</ul>";
-  });
-  s = s.replace(/(?:^|\n)((?:\s*\d+\.\s+.+\n?)+)/g, function(_, block){
-    const items = block.trim().split("\n").map(line => line.replace(/^\s*\d+\.\s+/, "").trim()).filter(Boolean);
-    return "<ol>" + items.map(i => "<li>"+i+"</li>").join("") + "</ol>";
-  });
+  s = s.replace(/^\s*[-*]\s+(.*)$/gm, "<li>$1</li>");
+  s = s.replace(/(?:<li>.*<\/li>\s*)+/g, function(m){ return "<ul>" + m + "</ul>"; });
+  s = s.replace(/^\s*\d+\.\s+(.*)$/gm, "<li>$1</li>");
 
-  s = s.replace(/^---+$/gm, "<hr>");
+  s = s.replace(/\n{2,}/g, "</p><p>");
   s = s.replace(/\n/g, "<br>");
-  s = s.replace(/(?:<br>\s*)+(<\/?(?:h[1-6]|ul|ol|li|table|tr|pre|div|hr))/gi, "$1");
-  s = s.replace(/(<\/?(?:h[1-6]|ul|ol|table|pre|div|hr)[^>]*>)(?:\s*<br>)+/gi, "$1");
+  s = "<p>" + s + "</p>";
+  s = s.replace(/<p>\s*<\/p>/g, "");
+  s = s.replace(/<p>\s*(<h[1-6]>)/g, "$1");
+  s = s.replace(/(<\/h[1-6]>)\s*<\/p>/g, "$1");
+  s = s.replace(/<p>\s*(<ul>)/g, "$1");
+  s = s.replace(/(<\/ul>)\s*<\/p>/g, "$1");
+  s = s.replace(/<p>\s*(<div)/g, "$1");
+  s = s.replace(/(<\/div>)\s*<\/p>/g, "$1");
+  s = s.replace(/<p>\s*(<pre>)/g, "$1");
+  s = s.replace(/(<\/pre>)\s*<\/p>/g, "$1");
+
+  // Restore math (unescaped LaTeX for KaTeX)
+  s = s.replace(/%%MATH(\d+)%%/g, function(_, i){
+    return slots[parseInt(i, 10)] || "";
+  });
   return s;
 }
 
-document.querySelectorAll(".tool-btn").forEach(btn=>{
-  btn.addEventListener("click", ()=>{
-    soundClick();
-    document.querySelectorAll(".tool-btn").forEach(b=>b.classList.remove("active"));
-    btn.classList.add("active");
-    currentTool = btn.dataset.tool;
-    document.getElementById("toolSelect").value = currentTool;
-  });
-});
-document.getElementById("toolSelect").addEventListener("change", e=>{ currentTool = e.target.value; });
-
-document.getElementById("logoClick").addEventListener("click", ()=>{
-  logoClicks++;
-  if(logoTimer) clearTimeout(logoTimer);
-  logoTimer = setTimeout(()=>{ logoClicks = 0; }, 2000);
-  if(logoClicks >= 5){ logoClicks = 0; openDevModal(); }
-});
-
-function openProModal(){ soundClick(); document.getElementById("proModal").classList.add("show"); }
-function closeProModal(){ document.getElementById("proModal").classList.remove("show"); }
-function openDevModal(){ document.getElementById("devModal").classList.add("show"); document.getElementById("devCode").value=""; document.getElementById("devMsg").textContent=""; }
-function closeDevModal(){ document.getElementById("devModal").classList.remove("show"); }
-function goPay(){ window.location.href = "/pay?uid=" + encodeURIComponent("web:" + clientId); }
-
-function openNameModal(){
-  soundClick();
-  document.getElementById("nameModal").classList.add("show");
-  document.getElementById("nameInput").value = localStorage.getItem("sg_name") || "";
-  document.getElementById("nameMsg").textContent = "";
+function renderMsgMath(el){
+  if(!el) return;
+  const run = () => {
+    if(!window.renderMathInElement) return false;
+    try{
+      renderMathInElement(el, {
+        delimiters: [
+          {left: "$$", right: "$$", display: true},
+          {left: "\\[", right: "\\]", display: true},
+          {left: "$", right: "$", display: false},
+          {left: "\\(", right: "\\)", display: false}
+        ],
+        throwOnError: false,
+        ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"]
+      });
+      return true;
+    }catch(e){ return false; }
+  };
+  if(run()) return;
+  let tries = 0;
+  const t = setInterval(() => {
+    tries++;
+    if(run() || tries > 20) clearInterval(t);
+  }, 100);
 }
-function closeNameModal(){
-  document.getElementById("nameModal").classList.remove("show");
-  localStorage.setItem("sg_name_skipped", "1");
-}
-async function saveName(){
-  const name = document.getElementById("nameInput").value.trim();
-  const msg = document.getElementById("nameMsg");
-  if(name.length < 2){
-    msg.style.color = "#f87171";
-    msg.textContent = "Kam se kam 2 letters likho";
-    soundError();
-    return;
-  }
-  try{
-    const res = await fetch("/api/set-name", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ client_id: clientId, name: name })
-    });
-    const data = await res.json();
-    if(data.ok){
-      localStorage.setItem("sg_name", data.name);
-      document.getElementById("name-display").textContent = "👤 " + data.name;
-      msg.style.color = "#22d3ee";
-      msg.textContent = "Saved!";
-      soundRecv();
-      setTimeout(closeNameModal, 500);
-      loadLB();
-    }else{
-      msg.style.color = "#f87171";
-      msg.textContent = data.error || "Failed";
-      soundError();
-    }
-  }catch(e){
-    msg.style.color = "#f87171";
-    msg.textContent = "Network error";
-    soundError();
-  }
-}
-
-(function initName(){
-  const saved = localStorage.getItem("sg_name");
-  const skipped = localStorage.getItem("sg_name_skipped");
-  if(saved){
-    document.getElementById("name-display").textContent = "👤 " + saved;
-  } else if(!skipped){
-    setTimeout(openNameModal, 900);
-  }
-})();
-
-async function checkDev(){
-  const code = document.getElementById("devCode").value.trim();
-  const msg = document.getElementById("devMsg");
-  try{
-    const res = await fetch("/api/dev/stats?code=" + encodeURIComponent(code));
-    const data = await res.json();
-    if(data.ok){
-      soundRecv();
-      msg.style.color = "#22d3ee";
-      msg.textContent = `✅ Dev OK | Users: ${data.total_users} | DAU: ${data.dau_today} | Pro: ${data.pro_users} | Live: ${data.live_approx} | Qs: ${data.total_questions}`;
-    }else{
-      soundError();
-      msg.style.color = "#f87171";
-      msg.textContent = "Wrong code";
-    }
-  }catch(e){ soundError(); msg.textContent = "Error reaching server"; }
-}
-
-function handleImage(input){
-  const file = input.files[0];
-  if(!file) return;
-  const reader = new FileReader();
-  reader.onload = ()=>{ imageBase64 = reader.result.split(",")[1]; addMessage("user","📷 Image uploaded (OCR)"); soundClick(); };
-  reader.readAsDataURL(file);
-}
-
 function addMessage(role, text, meta=""){
   const div = document.createElement("div");
   div.className = "msg " + role;
@@ -1413,19 +1350,7 @@ function addMessage(role, text, meta=""){
   const welcome = box.querySelector(".welcome");
   if(welcome) welcome.remove();
   box.appendChild(div);
-  if(role === "bot" && window.renderMathInElement){
-    try{
-      renderMathInElement(div, {
-        delimiters: [
-          {left: "$$", right: "$$", display: true},
-          {left: "\\[", right: "\\]", display: true},
-          {left: "$", right: "$", display: false},
-          {left: "\\(", right: "\\)", display: false}
-        ],
-        throwOnError: false
-      });
-    }catch(e){}
-  }
+  if(role === "bot") renderMsgMath(div);
   box.scrollTop = box.scrollHeight;
 }
 
@@ -1498,10 +1423,6 @@ PAY_HTML = r"""
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
-
 <title>Upgrade Pro – StudyGenie</title>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <style>
