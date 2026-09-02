@@ -152,6 +152,13 @@ def run_ai(fn, *args, **kwargs):
         return f"ERROR: {e}"
 
 
+
+def make_cache_key(tool: str, question: str, is_pro: bool) -> str:
+    q = " ".join((question or "").lower().split())
+    raw = f"{tool}|{1 if is_pro else 0}|{q}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:40]
+
+
 def create_razorpay_order(uid: str, amount_inr: int) -> dict:
     if not config.RAZORPAY_KEY_ID or not config.RAZORPAY_KEY_SECRET:
         return {"error": "Razorpay keys missing"}
@@ -453,6 +460,22 @@ class Database:
             badges.append(badge)
             user["badges"] = json.dumps(badges)
             self.save_user(uid, user)
+
+    def cache_get(self, key: str) -> Optional[str]:
+        if not self.redis or not key:
+            return None
+        try:
+            return self.redis.get(f"ans:{key}")
+        except Exception:
+            return None
+
+    def cache_set(self, key: str, answer: str, ttl: int = None) -> None:
+        if not self.redis or not key or not answer:
+            return
+        try:
+            self.redis.setex(f"ans:{key}", int(ttl or config.CACHE_TTL), answer)
+        except Exception:
+            pass
 
     def get_stats(self) -> Dict[str, int]:
         if not self.redis:
@@ -1569,7 +1592,7 @@ def health():
         "ok": True, "redis": redis_ok,
         "groq": ai.groq_client is not None, "gemini": ai.gemini_client is not None,
         "primary": config.AI_PRIMARY,
-        "version": "StudyGenie v3.6 (Markdown+Name+UI+Pay)",
+        "version": "StudyGenie v3.7 (Cache+Markdown+Name+UI+Pay)",
         "creator": "Sparsh Singhal",
     })
 
@@ -1647,6 +1670,8 @@ def web_ask():
         if not can:
             return jsonify({"answer": "❌ Quota finished! Upgrade to Pro.\n\n- made with love by Sparsh Singhal", "quota": quota})
     start = time.time()
+    cached = False
+    answer = None
     if image_b64:
         try:
             img_bytes = base64.b64decode(image_b64)
@@ -1655,7 +1680,14 @@ def web_ask():
             logger.error("Image: %s", e)
             answer = "Could not read the image."
     else:
-        answer = run_ai(ai.answer, q, tool, is_pro=is_pro)
+        ckey = make_cache_key(tool, q, is_pro)
+        answer = db.cache_get(ckey)
+        if answer:
+            cached = True
+        else:
+            answer = run_ai(ai.answer, q, tool, is_pro=is_pro)
+            if answer and not str(answer).startswith("ERROR:"):
+                db.cache_set(ckey, answer)
     elapsed = time.time() - start
     if not answer or str(answer).startswith("ERROR:"):
         return jsonify({"answer": "😔 Couldn't generate answer. Try again.\n\n- made with love by Sparsh Singhal"})
@@ -1672,8 +1704,14 @@ def web_ask():
             pass
     _, quota = db.check_quota(uid)
     rank = db.get_rank(uid)
-    footer = f"\n\n━━━━━━━━━━━━━━━\n⚡ {elapsed:.1f}s | ⭐ +{xp_gain} XP{' (2× Pro)' if is_pro else ''} | Level {level}\n- made with love by Sparsh Singhal"
-    return jsonify({"answer": answer + footer, "xp": xp, "level": level, "rank": rank, "quota": quota, "elapsed": round(elapsed, 2)})
+    footer = (
+        f"\n\n━━━━━━━━━━━━━━━\n"
+        f"⚡ {elapsed:.1f}s"
+        f"{' | 📦 cache' if cached else ''}"
+        f" | ⭐ +{xp_gain} XP{' (2× Pro)' if is_pro else ''} | Level {level}\n"
+        f"- made with love by Sparsh Singhal"
+    )
+    return jsonify({"answer": answer + footer, "xp": xp, "level": level, "rank": rank, "quota": quota, "elapsed": round(elapsed, 2), "cached": cached})
 
 
 @app.route("/api/leaderboard")
