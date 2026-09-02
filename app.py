@@ -1073,7 +1073,7 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
     <button class="tool-btn" data-tool="resume">📄 Resume <span class="pro-badge">PRO</span></button>
     <button class="tool-btn" data-tool="career">🚀 Career Guide <span class="pro-badge">PRO</span></button>
     <button class="tool-btn" data-tool="tips">💡 Sparsh Tips <span class="pro-badge">PRO</span></button>
-    <button class="pay-side" onclick="openProModal()">💎 Upgrade to Pro – ₹{{ price }}/30 days</button>
+    <button class="pay-side" onclick="openProModal()">🔫 Ammo khatam. Please upgrade to PRO – ₹{{ price }} for 30 days</button>
     <h3>🏆 Live Leaderboard</h3>
     <div id="lb-list">Loading...</div>
   </aside>
@@ -1113,7 +1113,7 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
       </div>
       <div class="input-row">
         <textarea id="question" placeholder="Apna sawaal yahan likho..." rows="1"></textarea>
-        <button class="send" id="sendBtn" onclick="ask()">Send</button>
+        <button class="send" id="sendBtn" onclick="ask()">🔥 Fire</button>
       </div>
     </div>
   </section>
@@ -1174,12 +1174,14 @@ let logoTimer = null;
 
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 let actx = null;
-function beep(freq, dur, type="sine", vol=0.08){
+function beep(freq, dur, type="square", vol=0.35){
   try{
     if(!actx) actx = new AudioCtx();
+    if(actx.state === "suspended") actx.resume();
     const o = actx.createOscillator();
     const g = actx.createGain();
-    o.type = type; o.frequency.value = freq;
+    o.type = type;
+    o.frequency.value = freq;
     g.gain.value = vol;
     o.connect(g); g.connect(actx.destination);
     o.start();
@@ -1187,10 +1189,10 @@ function beep(freq, dur, type="sine", vol=0.08){
     o.stop(actx.currentTime + dur);
   }catch(e){}
 }
-function soundSend(){ beep(520, 0.08, "sine", 0.07); }
-function soundRecv(){ beep(680, 0.1, "triangle", 0.06); setTimeout(()=>beep(820,0.08,"triangle",0.05), 90); }
-function soundClick(){ beep(400, 0.05, "square", 0.04); }
-function soundError(){ beep(180, 0.15, "sawtooth", 0.06); }
+function soundSend(){ beep(180, 0.06, "sawtooth", 0.4); setTimeout(()=>beep(90, 0.12, "square", 0.35), 40); }
+function soundRecv(){ beep(520, 0.05, "square", 0.3); setTimeout(()=>beep(780, 0.08, "square", 0.35), 60); setTimeout(()=>beep(1040, 0.1, "triangle", 0.3), 140); }
+function soundClick(){ beep(240, 0.04, "square", 0.28); }
+function soundError(){ beep(120, 0.15, "sawtooth", 0.4); setTimeout(()=>beep(80, 0.2, "sawtooth", 0.35), 100); }
 
 function escapeHtml(s){
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -1380,7 +1382,7 @@ async function ask(){
   document.getElementById("question").value = "";
   const loading = document.createElement("div");
   loading.className = "msg bot loading";
-  loading.textContent = "Sparsh Singhal ka StudyGenie abhi soch raha hai... ⏳";
+  loading.textContent = "🎯 Target locked by Sparsh Singhal's StudyGenie...";
   document.getElementById("messages").appendChild(loading);
   try{
     const res = await fetch("/api/webask", {
@@ -1406,7 +1408,7 @@ async function ask(){
     soundError();
   }
   imageBase64 = null;
-  btn.disabled = false; btn.textContent = "Send";
+  btn.disabled = false; btn.textContent = "🔥 Fire";
 }
 
 document.getElementById("question").addEventListener("keydown", e=>{
