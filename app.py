@@ -533,7 +533,7 @@ class AIService:
             "You are StudyGenie by Sparsh Singhal – India's fun gamified AI tutor for Class 6-12, "
             "JEE, NEET, GATE, UPSC, SSC, Banking, CA, CUET, Olympiads. Reply in natural Hinglish. "
             "Be clear, exam-oriented, encouraging, use emojis. "
-            "Use clean Markdown: headings, bold, bullet lists, and simple tables when helpful.\n\n"
+            "Use clean Markdown: headings, bold, bullet lists, and simple tables when helpful. ""For math use LaTeX in \\( ... \\) or $$ ... $$. Also add one plain-English line under hard formulas.\n\n"
         )
         if is_pro:
             base += "PRO user: give deeper explanations, tips, memory tricks, common mistakes, exam strategy.\n\n"
@@ -1413,6 +1413,19 @@ function addMessage(role, text, meta=""){
   const welcome = box.querySelector(".welcome");
   if(welcome) welcome.remove();
   box.appendChild(div);
+  if(role === "bot" && window.renderMathInElement){
+    try{
+      renderMathInElement(div, {
+        delimiters: [
+          {left: "$$", right: "$$", display: true},
+          {left: "\\[", right: "\\]", display: true},
+          {left: "$", right: "$", display: false},
+          {left: "\\(", right: "\\)", display: false}
+        ],
+        throwOnError: false
+      });
+    }catch(e){}
+  }
   box.scrollTop = box.scrollHeight;
 }
 
@@ -1485,6 +1498,10 @@ PAY_HTML = r"""
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+
 <title>Upgrade Pro – StudyGenie</title>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <style>
@@ -1613,7 +1630,7 @@ def health():
         "ok": True, "redis": redis_ok,
         "groq": ai.groq_client is not None, "gemini": ai.gemini_client is not None,
         "primary": config.AI_PRIMARY,
-        "version": "StudyGenie v3.8 (Cache+PYQ+Trends+UI)",
+        "version": "StudyGenie v3.9 (KaTeX+Cache+PYQ+UI)",
         "creator": "Sparsh Singhal",
     })
 
