@@ -1182,7 +1182,7 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
     </div>
   </div>
   <div class="stats">
-    <span id="name-display" style="cursor:pointer;color:var(--accent)" onclick="openNameModal()" title="Change name">👤 Set name</span>
+    <span id="name-display" style="cursor:pointer;color:var(--accent);position:relative;z-index:50;pointer-events:auto" onclick="openNameModal()" title="Change name">👤 Set name</span>
     <span id="xp-display">⭐ 0 XP</span>
     <span id="level-display">Level 1</span>
     <span id="quota-display">Free</span>
@@ -1310,6 +1310,67 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
 <script>
 const PRICE = {{ price }};
 let currentTool = "general";
+
+
+function openNameModal(){
+  const m = document.getElementById("nameModal");
+  if(!m) return;
+  m.classList.add("show");
+  const input = document.getElementById("nameInput");
+  const cur = (document.getElementById("name-display")||{}).textContent || "";
+  if(input && cur && !cur.includes("Set name")){
+    input.value = cur.replace(/^👤\s*/, "").trim();
+  }
+  setTimeout(() => { try{ input && input.focus(); }catch(e){} }, 50);
+  try{ soundClick(); }catch(e){}
+}
+function closeNameModal(){
+  const m = document.getElementById("nameModal");
+  if(m) m.classList.remove("show");
+  try{ localStorage.setItem("sg_name_skipped", "1"); }catch(e){}
+}
+async function saveName(){
+  const input = document.getElementById("nameInput");
+  const msg = document.getElementById("nameMsg");
+  const name = (input && input.value || "").trim();
+  if(!name || name.length < 2){
+    if(msg){ msg.style.color = "#f87171"; msg.textContent = "Naam kam se kam 2 letters ka ho"; }
+    try{ soundError(); }catch(e){}
+    return;
+  }
+  try{
+    const res = await fetch("/api/set-name", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ client_id: clientId, name })
+    });
+    const data = await res.json();
+    if(data.ok){
+      const el = document.getElementById("name-display");
+      if(el) el.textContent = "👤 " + data.name;
+      try{ localStorage.setItem("sg_name", data.name); }catch(e){}
+      if(msg){ msg.style.color = "#22d3ee"; msg.textContent = "Saved!"; }
+      try{ soundRecv(); }catch(e){}
+      setTimeout(closeNameModal, 400);
+    }else{
+      if(msg){ msg.style.color = "#f87171"; msg.textContent = data.error || "Failed"; }
+      try{ soundError(); }catch(e){}
+    }
+  }catch(e){
+    if(msg){ msg.style.color = "#f87171"; msg.textContent = "Network error"; }
+    try{ soundError(); }catch(e){}
+  }
+}
+// restore saved name in header
+(function(){
+  try{
+    const saved = localStorage.getItem("sg_name");
+    if(saved){
+      const el = document.getElementById("name-display");
+      if(el) el.textContent = "👤 " + saved;
+    }
+  }catch(e){}
+})();
 
 function setTool(tool){
   if(!tool) return;
@@ -1769,7 +1830,16 @@ def web_ask():
                 db.cache_set(ckey, answer)
     elapsed = time.time() - start
     if not answer or str(answer).startswith("ERROR:"):
-        return jsonify({"answer": "😔 Couldn't generate answer. Try again.\n\n- made with love by Sparsh Singhal"})
+        reason = str(answer)[6:].strip() if str(answer).startswith("ERROR:") else "empty"
+        # soft, user-facing
+        tip = "AI busy/timeout. 10 sec baad phir try karo."
+        if "timeout" in reason.lower() or "timed out" in reason.lower():
+            tip = "AI timeout. Chhota sawaal try karo ya 15 sec baad dubara."
+        elif "rate" in reason.lower() or "429" in reason:
+            tip = "Rate limit. 1 minute wait karo."
+        return jsonify({
+            "answer": f"😔 Couldn't generate answer. {tip}\n\n_debug: {reason[:120]}\n\n- made with love by Sparsh Singhal"
+        })
     if not is_pro:
         db.consume_quota(uid)
     xp_gain = config.XP_QUESTION * (2 if is_pro else 1)
