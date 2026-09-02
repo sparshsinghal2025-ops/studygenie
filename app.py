@@ -539,13 +539,34 @@ class AIService:
             base += "PRO user: give deeper explanations, tips, memory tricks, common mistakes, exam strategy.\n\n"
         return base
 
-    def _templates(self, base: str, question: str) -> Dict[str, str]:
+    def _templates(self, base: str, question: str, is_pro: bool = False) -> Dict[str, str]:
+        n_pyq = 20 if is_pro else 10
         return {
             "general": f"{base}Student's Question:\n{question}",
             "explain": f"{base}Explain simply with examples and analogy.\n\n{question}",
             "solve": f"{base}Solve step-by-step with final answer.\n\n{question}",
             "notes": f"{base}Short exam-ready notes + key points + formulas.\n\n{question}",
-            "pyq": f"{base}Solve this PYQ with full working.\n\n{question}",
+            "pyq": (
+                f"{base}"
+                "User message may be either (1) a full past-year question to solve, "
+                "or (2) a topic/chapter with optional filters.\n"
+                "If it is a full question: solve step-by-step with final answer, tips, common mistakes.\n"
+                f"If it is a topic request: generate exactly {n_pyq} exam-style questions STRICTLY on the given topic only "
+                "(do not drift to unrelated chapters). Exam level: JEE/NEET/GATE/SSC/University as suitable.\n"
+                "TOPIC FILTER:\n"
+                "- Stay 100% inside the named topic/subtopic.\n"
+                "- If user names exam (JEE/NEET/GATE/SSC/DTU/etc), match that style and difficulty.\n"
+                "- If user names year range (e.g. 2018-2024), prefer that era's pattern.\n"
+                "PREVIOUS YEAR TRENDS (must include a short section before questions):\n"
+                "- 4-6 bullet trends: what is frequently asked, weightage feel, repeated concepts, recent shift.\n"
+                "- Mention typical years/exams only when reasonably known; never invent exact paper codes.\n"
+                "Question mix rules:\n"
+                "- objective/MCQ only: all MCQs with 4 options, correct answer, 1-line explanation.\n"
+                "- subjective only: short/long PYQs with model answers.\n"
+                "- Default / both: roughly half objective + half subjective.\n"
+                "Format: (1) Trends box (2) Numbered questions (3) Answer key at end.\n\n"
+                f"User input:\n{question}"
+            ),
             "formula": f"{base}Important formulas with short notes.\n\n{question}",
             "planner": f"{base}Create a realistic 7-day study plan.\n\nTopic: {question}",
             "mock": f"{base}Generate 5 MCQs with answers and explanations.\n\nTopic: {question}",
@@ -603,7 +624,7 @@ class AIService:
         if not question or not question.strip():
             return "Please ask a valid question."
         base = self._base_prompt(is_pro)
-        templates = self._templates(base, question.strip())
+        templates = self._templates(base, question.strip(), is_pro=is_pro)
         prompt = templates.get(tool, templates["general"])
         cache_key = None
         if db.redis:
@@ -614,7 +635,7 @@ class AIService:
                     return cached
             except Exception:
                 pass
-        max_tokens = 1800 if is_pro else 1400
+        max_tokens = 2800 if (is_pro and tool == "pyq") else (2000 if is_pro else (1800 if tool == "pyq" else 1400))
         providers = [("groq", self._call_groq), ("gemini", self._call_gemini)]
         if config.AI_PRIMARY != "groq":
             providers = list(reversed(providers))
@@ -1592,7 +1613,7 @@ def health():
         "ok": True, "redis": redis_ok,
         "groq": ai.groq_client is not None, "gemini": ai.gemini_client is not None,
         "primary": config.AI_PRIMARY,
-        "version": "StudyGenie v3.7 (Cache+Markdown+Name+UI+Pay)",
+        "version": "StudyGenie v3.8 (Cache+PYQ+Trends+UI)",
         "creator": "Sparsh Singhal",
     })
 
