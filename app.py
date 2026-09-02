@@ -348,19 +348,40 @@ class Database:
         return ok
 
     def add_xp(self, uid: str | int, amount: int) -> Tuple[int, int]:
-        user = self.get_user(uid)
-        if not user:
-            return 0, 1
-        xp = int(user.get("xp", 0)) + amount
+        """Atomically add XP and return (total_xp, level)."""
+        uid = str(uid)
+        amount = int(amount or 0)
+        if amount == 0:
+            user = self.get_user(uid) or {}
+            xp = int(user.get("xp", 0) or 0)
+            return xp, (xp // 100) + 1
+        # Ensure user hash exists first
+        self.ensure_user(uid)
+        if self.redis:
+            try:
+                key = self._key(uid)
+                pipe = self.redis.pipeline()
+                pipe.hincrby(key, "xp", amount)
+                pipe.hget(key, "xp")
+                pipe.expire(key, 86400 * 120)
+                results = pipe.execute()
+                xp = int(results[1] or 0)
+                level = (xp // 100) + 1
+                self.redis.hset(key, "level", str(level))
+                try:
+                    self.redis.zadd("leaderboard", {uid: xp})
+                except Exception:
+                    pass
+                return xp, level
+            except Exception as e:
+                logger.warning("add_xp redis: %s", e)
+        # Fallback without redis atomic
+        user = self.get_user(uid) or self.ensure_user(uid)
+        xp = int(user.get("xp", 0) or 0) + amount
         level = (xp // 100) + 1
         user["xp"] = str(xp)
         user["level"] = str(level)
         self.save_user(uid, user)
-        if self.redis:
-            try:
-                self.redis.zadd("leaderboard", {str(uid): xp})
-            except Exception:
-                pass
         return xp, level
 
     def update_streak(self, uid: str | int) -> Dict[str, int]:
@@ -1372,6 +1393,32 @@ async function saveName(){
   }catch(e){}
 })();
 
+
+async function syncProfile(){
+  try{
+    const res = await fetch("/api/me?client_id=" + encodeURIComponent(clientId));
+    const data = await res.json();
+    if(!data.ok) return;
+    if(data.name && data.name !== "Web Student" && data.name !== "Student"){
+      const el = document.getElementById("name-display");
+      if(el) el.textContent = "👤 " + data.name;
+    }
+    if(data.xp !== undefined){
+      const x = document.getElementById("xp-display");
+      if(x) x.textContent = `⭐ ${data.xp} XP`;
+    }
+    if(data.level !== undefined){
+      const l = document.getElementById("level-display");
+      if(l) l.textContent = `Level ${data.level}`;
+    }
+    if(data.quota){
+      const q = document.getElementById("quota-display");
+      if(q) q.textContent = data.quota.daily_left === -1 ? "PRO ∞" : `Free: ${data.quota.daily_left} left`;
+    }
+  }catch(e){}
+}
+syncProfile();
+
 function setTool(tool){
   if(!tool) return;
   currentTool = tool;
@@ -1557,9 +1604,11 @@ async function ask(){
     loading.remove();
     addMessage("bot", data.answer || "No response", data.elapsed ? `⚡ ${data.elapsed}s` : "");
     soundRecv();
-    if(data.xp !== undefined){
+    if(data.xp !== undefined && data.xp !== null){
       document.getElementById("xp-display").textContent = `⭐ ${data.xp} XP`;
-      document.getElementById("level-display").textContent = `Level ${data.level}`;
+      if(data.level !== undefined) document.getElementById("level-display").textContent = `Level ${data.level}`;
+    } else {
+      syncProfile();
     }
     if(data.quota){
       const qq = data.quota;
@@ -1702,6 +1751,26 @@ def api_create_order():
         return jsonify(order), 400
     return jsonify({"id": order.get("id"), "amount": order.get("amount"), "currency": order.get("currency", "INR")})
 
+
+
+@app.route("/api/me")
+def api_me():
+    client_id = (request.args.get("client_id") or "").strip()
+    if not client_id:
+        return jsonify({"ok": False, "error": "client_id required"}), 400
+    uid = f"web:{client_id}"
+    user = db.ensure_user(uid, full_name="Web Student", platform="web")
+    xp = int(user.get("xp", 0) or 0)
+    level = int(user.get("level", 1) or 1)
+    return jsonify({
+        "ok": True,
+        "uid": uid,
+        "name": user.get("full_name") or "Student",
+        "xp": xp,
+        "level": level,
+        "plan": "pro" if db.is_pro(uid) else "free",
+        "quota": db.check_quota(uid)[1],
+    })
 
 @app.route("/api/set-name", methods=["POST"])
 def api_set_name():
