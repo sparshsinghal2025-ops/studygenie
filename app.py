@@ -881,8 +881,28 @@ async def process_question(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     udata = db.ensure_user(uid, user.username or "", user.full_name or "Student")
     xp_gain = config.XP_QUESTION * (2 if is_pro else 1)
     xp, level = db.add_xp(uid, xp_gain)
-    udata["questions_asked"] = str(int(udata.get("questions_asked", 0)) + 1)
-    db.save_user(uid, udata)
+
+    try:
+
+        if db.redis:
+
+            db.redis.hincrby(db._key(uid), "questions_asked", 1)
+
+        else:
+
+            _u = db.get_user(uid) or {}
+
+            _u["questions_asked"] = str(int(_u.get("questions_asked", 0)) + 1)
+
+            _u["xp"] = str(xp)
+
+            _u["level"] = str(level)
+
+            db.save_user(uid, _u)
+
+    except Exception:
+
+        pass
     db.update_streak(uid)
     if db.redis:
         try:
@@ -1042,8 +1062,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         udata = db.ensure_user(uid, user.username or "", user.full_name or "Student")
         xp_gain = config.XP_QUESTION * 2
         xp, level = db.add_xp(uid, xp_gain)
-        udata["questions_asked"] = str(int(udata.get("questions_asked", 0)) + 1)
-        db.save_user(uid, udata)
+        try:
+            if db.redis:
+                db.redis.hincrby(db._key(uid), "questions_asked", 1)
+            else:
+                udata = db.get_user(uid) or udata
+                udata["questions_asked"] = str(int(udata.get("questions_asked", 0)) + 1)
+                udata["xp"] = str(xp)
+                udata["level"] = str(level)
+                db.save_user(uid, udata)
+        except Exception:
+            pass
         footer = f"\n\n━━━━━━━━━━━━━━━\n📷 OCR | ⚡ {elapsed:.1f}s | ⭐ +{xp_gain} XP (2× Pro) | Level {level}"
         await reply(update, answer + footer)
     except Exception as e:
@@ -1868,7 +1897,7 @@ def health():
         "ok": True, "redis": redis_ok,
         "groq": ai.groq_client is not None, "gemini": ai.gemini_client is not None,
         "primary": config.AI_PRIMARY,
-        "version": "StudyGenie v3.9 (KaTeX+Cache+PYQ+UI)",
+        "version": "StudyGenie v4.0 (XP-fix+Cache+UI)",
         "creator": "Sparsh Singhal",
     })
 
@@ -1980,8 +2009,28 @@ def web_ask():
         db.consume_quota(uid)
     xp_gain = config.XP_QUESTION * (2 if is_pro else 1)
     xp, level = db.add_xp(uid, xp_gain)
-    udata["questions_asked"] = str(int(udata.get("questions_asked", 0)) + 1)
-    db.save_user(uid, udata)
+
+    try:
+
+        if db.redis:
+
+            db.redis.hincrby(db._key(uid), "questions_asked", 1)
+
+        else:
+
+            _u = db.get_user(uid) or {}
+
+            _u["questions_asked"] = str(int(_u.get("questions_asked", 0)) + 1)
+
+            _u["xp"] = str(xp)
+
+            _u["level"] = str(level)
+
+            db.save_user(uid, _u)
+
+    except Exception:
+
+        pass
     if db.redis:
         try:
             db.redis.incr("stats:total_questions")
