@@ -75,7 +75,7 @@ class Config:
         self.GEMINI_FLASH_LITE_MODEL = os.getenv("GEMINI_FLASH_LITE_MODEL", "gemini-3.1-flash-lite").strip()
         self.GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
         self.GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
-        self.AI_PRIMARY = os.getenv("AI_PRIMARY", "groq").strip().lower()
+        self.AI_PRIMARY = os.getenv("AI_PRIMARY", "gemini").strip().lower()
 
         # --- Extra fallback providers (reliability chain) -----------------
         # OpenRouter: genuinely free models exist (":free" suffix), rate
@@ -662,6 +662,14 @@ _redis_for_rl = db.redis
 # AI SERVICE
 # ============================================================================
 
+SOFT_FAIL_MSG = (
+    "🎯 Target almost locked!\n\n"
+    "StudyGenie abhi thoda busy hai (free AI limits).\n"
+    "15–20 second baad dubara try karo — answers wapas aa jaate hain.\n\n"
+    "Short tip: chhota clear sawaal likho.\n"
+    "- Sparsh Singhal ka StudyGenie tumhare saath hai"
+)
+
 class AIService:
     def __init__(self) -> None:
         self.gemini_client = None
@@ -927,30 +935,34 @@ class AIService:
         templates = self._templates(base, question.strip(), is_pro=is_pro)
         prompt = templates.get(tool, templates["general"])
         max_tokens = 2800 if (is_pro and tool == "pyq") else (2000 if is_pro else (1800 if tool == "pyq" else 1400))
-        # 3-provider reliability chain: Groq -> Gemini Flash-Lite -> OpenRouter (free models). Each is skipped instantly if its key
+        # Primary Gemini Flash-Lite -> secondary OpenRouter (free). Optional Groq if AI_PRIMARY=groq. Each is skipped instantly if its key
         # isn't configured, so this degrades gracefully to whatever subset
         # of providers you've actually set up.
+        # Primary: Gemini Flash-Lite → Secondary: OpenRouter free models.
+        # Groq is optional last resort only if GROQ is forced via AI_PRIMARY=groq;
+        # default chain skips broken/slow Groq to cut latency.
         providers = [
-            ("groq", self._call_groq),
             ("gemini_flash_lite", self._call_gemini_flash_lite),
             ("openrouter", self._call_openrouter),
         ]
+        if config.AI_PRIMARY == "groq" and self.groq_client:
+            providers = [("groq", self._call_groq)] + providers
         # Retry the whole chain once more if every provider fails on the
         # first pass (handles transient blips without giving up too soon).
         for attempt in range(2):
             for name, fn in providers:
                 text = fn(prompt, max_tokens=max_tokens)
                 if text:
-                    if attempt > 0 or name != "groq":
-                        logger.info("Answer served by fallback provider: %s", name)
+                    logger.info("Answer served by provider: %s (attempt %s)", name, attempt + 1)
                     return text
             if attempt == 0:
                 time.sleep(1.2)
-        return None
+        return SOFT_FAIL_MSG
+
 
     def answer_with_image(self, img_bytes: bytes, mime: str, question: str = "", tool: str = "ocr", is_pro: bool = False) -> Optional[str]:
         if not self.gemini_client:
-            return "Image understanding unavailable right now."
+            return SOFT_FAIL_MSG
         base = self._base_prompt(is_pro)
         prompt = f"{base}Look at the image and solve/explain. Extra: {question or 'Explain fully'}"
         try:
@@ -962,7 +974,7 @@ class AIService:
             return (resp.text or "").strip() or None
         except Exception as e:
             logger.error("Vision: %s", e)
-            return None
+            return SOFT_FAIL_MSG
 
 
 ai = AIService()
@@ -2308,7 +2320,7 @@ def health():
             "gemini_flash_lite": ai.gemini_client is not None,
             "openrouter": ai.openrouter_ready,
         },
-        "version": "StudyGenie v6.1 (Groq+Gemini+OpenRouter+Referral)",
+        "version": "StudyGenie v6.2 (Gemini primary + OpenRouter + soft-fail)",
         "creator": "Sparsh Singhal",
     })
 
@@ -2318,7 +2330,7 @@ def debug_ai():
     if not config.DEV_SECRET or not hmac.compare_digest(request.args.get("code", ""), config.DEV_SECRET):
         return jsonify({"ok": False}), 403
     results: Dict[str, Any] = {
-        "chain_order": ["groq", "gemini_flash_lite", "openrouter"],
+        "chain_order": ["gemini_flash_lite", "openrouter"],
         "keys_present": {
             "groq": bool(config.GROQ_API_KEY),
             "gemini": bool(config.GOOGLE_API_KEY),
@@ -2399,11 +2411,18 @@ def web_ask():
             if answer and not str(answer).startswith("ERROR:"):
                 db.cache_set(ckey, answer)
     elapsed = time.time() - start
-    if not answer or str(answer).startswith("ERROR:"):
-        # Friendly, non-leaky message — technical detail stays server-side in logs only.
-        logger.warning("AI failure for uid=%s tool=%s reason=%s", uid, tool, answer)
+    soft = "Target almost locked" in str(answer or "")
+    if (not answer) or str(answer).startswith("ERROR:") or soft:
+        logger.warning("AI failure for uid=%s tool=%s reason=%s", uid, tool, (answer or "")[:120])
         return jsonify({
-            "answer": "😔 Abhi answer generate nahi ho paya. 15-20 second baad phir try karo.\n\n- made with love by Sparsh Singhal"
+            "answer": (
+                "🎯 Target almost locked!\n\n"
+                "StudyGenie abhi thoda busy hai (free servers pe heavy traffic).\n"
+                "15–20 second baad dubara **Fire** dabao — zyada tar sawaal tab clear ho jaate hain.\n\n"
+                "Tip: simple / short sawaal try karo, ya thodi der baad.\n"
+                "Pro plan = unlimited + priority.\n\n"
+                "- made with love by Sparsh Singhal"
+            )
         })
     if not is_pro:
         pass  # already consumed atomically above via try_consume_quota
