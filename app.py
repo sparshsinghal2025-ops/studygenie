@@ -78,14 +78,6 @@ class Config:
         self.AI_PRIMARY = os.getenv("AI_PRIMARY", "groq").strip().lower()
 
         # --- Extra fallback providers (reliability chain) -----------------
-        # DeepSeek: NOT a true free tier (verified) — pay-as-you-go at
-        # ~$0.14/1M input tokens, with a one-time 5M-token grant for new
-        # accounts. Still cheap enough to sit as a fallback with near-zero
-        # cost at low traffic. https://api-docs.deepseek.com
-        self.DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
-        self.DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip()
-        self.DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip()
-
         # OpenRouter: genuinely free models exist (":free" suffix), rate
         # limited to ~20 req/min and 50 req/day per key (1000/day after a
         # one-time $10 top-up). We rotate through several free models so a
@@ -94,9 +86,11 @@ class Config:
         self.OPENROUTER_MODELS = [
             m.strip() for m in os.getenv(
                 "OPENROUTER_MODELS",
-                "meta-llama/llama-3.3-70b-instruct:free,"
-                "qwen/qwen3-next-80b-a3b-instruct:free,"
-                "mistralai/mistral-small-3.1-24b-instruct:free",
+                "minimax/minimax-m3:free,"
+                "thinkingmachines/inkling:free,"
+                "google/gemma-4-31b-it:free,"
+                "inclusionai/ling-3.0-flash-fin:free,"
+                "nvidia/nemotron-3.5-lightning:free",
             ).split(",") if m.strip()
         ]
         self.OPENROUTER_SITE_URL = os.getenv("OPENROUTER_SITE_URL", "https://studygenie.app").strip()
@@ -672,7 +666,6 @@ class AIService:
     def __init__(self) -> None:
         self.gemini_client = None
         self.groq_client = None
-        self.deepseek_ready = bool(config.DEEPSEEK_API_KEY)
         self.openrouter_ready = bool(config.OPENROUTER_API_KEY and config.OPENROUTER_MODELS)
         if config.GOOGLE_API_KEY:
             try:
@@ -686,8 +679,6 @@ class AIService:
                 logger.info("Groq ready | %s", config.GROQ_MODEL)
             except Exception as e:
                 logger.error("Groq init: %s", e)
-        if self.deepseek_ready:
-            logger.info("DeepSeek ready | %s", config.DEEPSEEK_MODEL)
         if self.openrouter_ready:
             logger.info("OpenRouter ready | %s", config.OPENROUTER_MODELS)
 
@@ -886,7 +877,6 @@ class AIService:
                                  max_tokens: int, extra_headers: Optional[Dict[str, str]] = None,
                                  timeout: int = 30) -> Optional[str]:
         """Shared helper for any OpenAI-compatible chat/completions endpoint
-        (DeepSeek, OpenRouter, etc.) — avoids pulling in the openai SDK
         just for two providers when `requests` already does the job."""
         try:
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -911,14 +901,6 @@ class AIService:
         except Exception as e:
             logger.error("OpenAI-compatible call (%s): %s", model, e)
             return None
-
-    def _call_deepseek(self, prompt: str, max_tokens: int = 1500) -> Optional[str]:
-        if not config.DEEPSEEK_API_KEY:
-            return None
-        return self._call_openai_compatible(
-            config.DEEPSEEK_BASE_URL, config.DEEPSEEK_API_KEY, config.DEEPSEEK_MODEL,
-            prompt, max_tokens,
-        )
 
     def _call_openrouter(self, prompt: str, max_tokens: int = 1500) -> Optional[str]:
         if not config.OPENROUTER_API_KEY or not config.OPENROUTER_MODELS:
@@ -945,13 +927,11 @@ class AIService:
         templates = self._templates(base, question.strip(), is_pro=is_pro)
         prompt = templates.get(tool, templates["general"])
         max_tokens = 2800 if (is_pro and tool == "pyq") else (2000 if is_pro else (1800 if tool == "pyq" else 1400))
-        # 4-provider reliability chain: Groq -> DeepSeek -> Gemini Flash-Lite
-        # -> OpenRouter (free models). Each is skipped instantly if its key
+        # 3-provider reliability chain: Groq -> Gemini Flash-Lite -> OpenRouter (free models). Each is skipped instantly if its key
         # isn't configured, so this degrades gracefully to whatever subset
         # of providers you've actually set up.
         providers = [
             ("groq", self._call_groq),
-            ("deepseek", self._call_deepseek),
             ("gemini_flash_lite", self._call_gemini_flash_lite),
             ("openrouter", self._call_openrouter),
         ]
@@ -2325,11 +2305,10 @@ def health():
         "ok": True, "redis": redis_ok,
         "providers": {
             "groq": ai.groq_client is not None,
-            "deepseek": ai.deepseek_ready,
             "gemini_flash_lite": ai.gemini_client is not None,
             "openrouter": ai.openrouter_ready,
         },
-        "version": "StudyGenie v6.0 (4-Provider Fallback Chain+Referral+Security)",
+        "version": "StudyGenie v6.1 (Groq+Gemini+OpenRouter+Referral)",
         "creator": "Sparsh Singhal",
     })
 
@@ -2339,10 +2318,9 @@ def debug_ai():
     if not config.DEV_SECRET or not hmac.compare_digest(request.args.get("code", ""), config.DEV_SECRET):
         return jsonify({"ok": False}), 403
     results: Dict[str, Any] = {
-        "chain_order": ["groq", "deepseek", "gemini_flash_lite", "openrouter"],
+        "chain_order": ["groq", "gemini_flash_lite", "openrouter"],
         "keys_present": {
             "groq": bool(config.GROQ_API_KEY),
-            "deepseek": bool(config.DEEPSEEK_API_KEY),
             "gemini": bool(config.GOOGLE_API_KEY),
             "openrouter": bool(config.OPENROUTER_API_KEY),
         },
@@ -2362,10 +2340,6 @@ def debug_ai():
     else:
         results["groq"] = {"ok": False, "error": "not initialized"}
 
-    if ai.deepseek_ready:
-        results["deepseek"] = {**_timed(ai._call_deepseek, test_prompt, max_tokens=50), "model": config.DEEPSEEK_MODEL}
-    else:
-        results["deepseek"] = {"ok": False, "error": "DEEPSEEK_API_KEY not set"}
 
     if ai.gemini_client:
         results["gemini_flash_lite"] = {**_timed(ai._call_gemini_flash_lite, test_prompt, max_tokens=50),
