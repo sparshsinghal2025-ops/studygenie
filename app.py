@@ -72,9 +72,35 @@ class Config:
 
         self.GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
         self.GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip()
+        self.GEMINI_FLASH_LITE_MODEL = os.getenv("GEMINI_FLASH_LITE_MODEL", "gemini-3.1-flash-lite").strip()
         self.GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
         self.GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
         self.AI_PRIMARY = os.getenv("AI_PRIMARY", "groq").strip().lower()
+
+        # --- Extra fallback providers (reliability chain) -----------------
+        # DeepSeek: NOT a true free tier (verified) — pay-as-you-go at
+        # ~$0.14/1M input tokens, with a one-time 5M-token grant for new
+        # accounts. Still cheap enough to sit as a fallback with near-zero
+        # cost at low traffic. https://api-docs.deepseek.com
+        self.DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "").strip()
+        self.DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat").strip()
+        self.DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").strip()
+
+        # OpenRouter: genuinely free models exist (":free" suffix), rate
+        # limited to ~20 req/min and 50 req/day per key (1000/day after a
+        # one-time $10 top-up). We rotate through several free models so a
+        # single model being saturated doesn't take the whole fallback down.
+        self.OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+        self.OPENROUTER_MODELS = [
+            m.strip() for m in os.getenv(
+                "OPENROUTER_MODELS",
+                "meta-llama/llama-3.3-70b-instruct:free,"
+                "qwen/qwen3-next-80b-a3b-instruct:free,"
+                "mistralai/mistral-small-3.1-24b-instruct:free",
+            ).split(",") if m.strip()
+        ]
+        self.OPENROUTER_SITE_URL = os.getenv("OPENROUTER_SITE_URL", "https://studygenie.app").strip()
+        self.OPENROUTER_APP_NAME = os.getenv("OPENROUTER_APP_NAME", "StudyGenie by Sparsh Singhal").strip()
 
         self.FREE_DAILY = int(os.getenv("FREE_DAILY_QUESTIONS", "4"))
         self.FREE_LIFETIME = int(os.getenv("FREE_LIFETIME_QUESTIONS", "12"))
@@ -91,7 +117,9 @@ class Config:
 
         self.XP_QUESTION = 15
         self.CACHE_TTL = 3600
-        self.DEV_SECRET = os.getenv("DEV_SECRET", "SPARSH2025").strip()
+        # No hardcoded fallback — dev endpoints (/api/dev/*, /api/debug/ai)
+        # stay disabled until you explicitly set DEV_SECRET in your env.
+        self.DEV_SECRET = os.getenv("DEV_SECRET", "").strip()
         self.validate()
 
     def validate(self) -> None:
@@ -195,6 +223,12 @@ def create_razorpay_order(uid: str, amount_inr: int) -> dict:
 class Database:
     def __init__(self) -> None:
         self.redis = self._connect()
+        self._quota_script = None
+        if self.redis:
+            try:
+                self._quota_script = self.redis.register_script(self._QUOTA_LUA)
+            except Exception as e:
+                logger.warning("Quota Lua script registration failed, will retry per-call: %s", e)
 
     def _connect(self) -> Optional[redis.Redis]:
         if not config.REDIS_URL:
@@ -272,7 +306,7 @@ class Database:
             logger.error("save_user: %s", e)
             return False
 
-    def ensure_user(self, uid: str | int, username: str = "", full_name: str = "", platform: str = "telegram") -> Dict[str, str]:
+    def ensure_user(self, uid: str | int, username: str = "", full_name: str = "", platform: str = "telegram", referred_by: str = "") -> Dict[str, str]:
         user = self.get_user(uid)
         if user:
             if self.redis:
@@ -297,6 +331,7 @@ class Database:
             "badges": "[]",
             "referral_code": secrets.token_hex(4).upper(),
             "referred_by": "",
+            "referral_count": "0",
             "last_activity": _today_ist(),
             "created_at": _today_ist(),
         }
@@ -306,7 +341,57 @@ class Database:
                 self.redis.sadd("stats:users", str(uid))
             except Exception:
                 pass
-        return data
+        # Register this user's own referral code immediately so anyone can
+        # refer them from the moment they exist — regardless of which
+        # platform (Telegram/Web/WhatsApp) created the account.
+        self.register_referral_code(uid, data["referral_code"])
+        if referred_by:
+            self.apply_referral(uid, referred_by)
+        return self.get_user(uid) or data
+
+    def apply_referral(self, new_uid: str | int, ref_code: str) -> bool:
+        """Reward both the new user and the referrer with bonus free questions / XP.
+        Zero-cost growth lever — no ads budget needed, existing users bring new ones."""
+        if not self.redis or not ref_code:
+            return False
+        ref_code = ref_code.strip().upper()
+        new_uid = str(new_uid)
+        try:
+            lock_key = f"reflock:{new_uid}"
+            if not self.redis.set(lock_key, "1", nx=True, ex=86400):
+                return False  # already processed for this user
+            referrer_uid = self.redis.get(f"refcode:{ref_code}")
+            if not referrer_uid or referrer_uid == new_uid:
+                return False
+            new_user = self.get_user(new_uid)
+            if not new_user or new_user.get("referred_by"):
+                return False
+            new_user["referred_by"] = referrer_uid
+            self.save_user(new_uid, new_user)
+            # Bonus: +2 lifetime questions for the new user (soft, capped)
+            today = _today_ist()
+            self.redis.decrby(f"quota:lifetime:{new_uid}", 2)
+            ref_user = self.get_user(referrer_uid)
+            if ref_user:
+                count = int(ref_user.get("referral_count", 0) or 0) + 1
+                ref_user["referral_count"] = str(count)
+                self.save_user(referrer_uid, ref_user)
+                self.add_xp(referrer_uid, 50)
+                # Every 5 successful referrals -> 3 free Pro days
+                if count % 5 == 0:
+                    self.activate_pro(referrer_uid, days=3)
+            return True
+        except Exception as e:
+            logger.warning("apply_referral: %s", e)
+            return False
+
+    def register_referral_code(self, uid: str | int, code: str) -> None:
+        if not self.redis or not code:
+            return
+        try:
+            self.redis.set(f"refcode:{code.strip().upper()}", str(uid))
+        except Exception:
+            pass
 
     def track_activity(self, uid: str | int) -> None:
         if not self.redis:
@@ -336,7 +421,17 @@ class Database:
 
     def activate_pro(self, uid: str | int, days: int = 30) -> bool:
         user = self.get_user(uid) or self.ensure_user(uid)
-        until = (_now_ist() + timedelta(days=days)).isoformat()
+        # If already pro and not expired, extend from current expiry instead of overwriting
+        base = _now_ist()
+        try:
+            existing_until = user.get("pro_until", "")
+            if existing_until:
+                existing_dt = datetime.fromisoformat(existing_until)
+                if existing_dt > base:
+                    base = existing_dt
+        except Exception:
+            pass
+        until = (base + timedelta(days=days)).isoformat()
         user["plan"] = "pro"
         user["pro_until"] = until
         ok = self.save_user(uid, user)
@@ -413,7 +508,61 @@ class Database:
         self.save_user(uid, user)
         return {"current": new, "best": best, "shields": shields}
 
+    # ------------------------------------------------------------------
+    # QUOTA — now atomic via Lua script to remove the check-then-consume
+    # race condition (two concurrent requests could previously both pass
+    # the check before either incremented the counter).
+    # ------------------------------------------------------------------
+    _QUOTA_LUA = """
+    local daily_key = KEYS[1]
+    local life_key = KEYS[2]
+    local daily_limit = tonumber(ARGV[1])
+    local life_limit = tonumber(ARGV[2])
+    local daily_ttl = tonumber(ARGV[3])
+
+    local daily_used = tonumber(redis.call('GET', daily_key) or '0')
+    local life_used = tonumber(redis.call('GET', life_key) or '0')
+
+    if daily_used >= daily_limit or life_used >= life_limit then
+        local daily_left = daily_limit - daily_used
+        local life_left = life_limit - life_used
+        if daily_left < 0 then daily_left = 0 end
+        if life_left < 0 then life_left = 0 end
+        return {0, daily_left, life_left}
+    end
+
+    daily_used = redis.call('INCR', daily_key)
+    redis.call('EXPIRE', daily_key, daily_ttl)
+    life_used = redis.call('INCR', life_key)
+
+    local daily_left = daily_limit - daily_used
+    local life_left = life_limit - life_used
+    if daily_left < 0 then daily_left = 0 end
+    if life_left < 0 then life_left = 0 end
+    return {1, daily_left, life_left}
+    """
+
+    def try_consume_quota(self, uid: str | int) -> Tuple[bool, Dict[str, int]]:
+        """Atomically check AND consume in one Redis round trip. Returns
+        (allowed, {daily_left, lifetime_left}). Pro users always allowed."""
+        if self.is_pro(uid):
+            return True, {"daily_left": -1, "lifetime_left": -1}
+        if not self.redis:
+            return True, {"daily_left": config.FREE_DAILY, "lifetime_left": config.FREE_LIFETIME}
+        try:
+            today = _today_ist()
+            script = self._quota_script or self.redis.register_script(self._QUOTA_LUA)
+            allowed, daily_left, life_left = script(
+                keys=[f"quota:daily:{uid}:{today}", f"quota:lifetime:{uid}"],
+                args=[config.FREE_DAILY, config.FREE_LIFETIME, 90000],
+            )
+            return bool(int(allowed)), {"daily_left": int(daily_left), "lifetime_left": int(life_left)}
+        except Exception as e:
+            logger.warning("try_consume_quota: %s", e)
+            return True, {"daily_left": config.FREE_DAILY, "lifetime_left": config.FREE_LIFETIME}
+
     def check_quota(self, uid: str | int) -> Tuple[bool, Dict[str, int]]:
+        """Read-only peek at quota (does NOT consume). Used for display only."""
         if self.is_pro(uid):
             return True, {"daily_left": -1, "lifetime_left": -1}
         if not self.redis:
@@ -427,19 +576,6 @@ class Database:
             return (daily_left > 0 and life_left > 0), {"daily_left": daily_left, "lifetime_left": life_left}
         except Exception:
             return True, {"daily_left": config.FREE_DAILY, "lifetime_left": config.FREE_LIFETIME}
-
-    def consume_quota(self, uid: str | int) -> None:
-        if self.is_pro(uid) or not self.redis:
-            return
-        try:
-            today = _today_ist()
-            pipe = self.redis.pipeline()
-            pipe.incr(f"quota:daily:{uid}:{today}")
-            pipe.expire(f"quota:daily:{uid}:{today}", 90000)
-            pipe.incr(f"quota:lifetime:{uid}")
-            pipe.execute()
-        except Exception:
-            pass
 
     def get_leaderboard(self, limit: int = 15) -> List[Dict]:
         if not self.redis:
@@ -536,6 +672,8 @@ class AIService:
     def __init__(self) -> None:
         self.gemini_client = None
         self.groq_client = None
+        self.deepseek_ready = bool(config.DEEPSEEK_API_KEY)
+        self.openrouter_ready = bool(config.OPENROUTER_API_KEY and config.OPENROUTER_MODELS)
         if config.GOOGLE_API_KEY:
             try:
                 self.gemini_client = genai.Client(api_key=config.GOOGLE_API_KEY)
@@ -548,6 +686,10 @@ class AIService:
                 logger.info("Groq ready | %s", config.GROQ_MODEL)
             except Exception as e:
                 logger.error("Groq init: %s", e)
+        if self.deepseek_ready:
+            logger.info("DeepSeek ready | %s", config.DEEPSEEK_MODEL)
+        if self.openrouter_ready:
+            logger.info("OpenRouter ready | %s", config.OPENROUTER_MODELS)
 
     def _base_prompt(self, is_pro: bool) -> str:
         base = (
@@ -722,20 +864,79 @@ class AIService:
             logger.error("Groq: %s", e)
             return None
 
-    def _call_gemini(self, prompt: str, max_tokens: int = 1500) -> Optional[str]:
+    def _call_gemini(self, prompt: str, max_tokens: int = 1500, model: Optional[str] = None) -> Optional[str]:
         if not self.gemini_client:
             return None
         try:
             resp = self.gemini_client.models.generate_content(
-                model=config.GEMINI_MODEL,
+                model=model or config.GEMINI_MODEL,
                 contents=prompt,
                 config=genai_types.GenerateContentConfig(temperature=0.7, max_output_tokens=max_tokens),
             )
             text = (resp.text or "").strip()
             return text or None
         except Exception as e:
-            logger.error("Gemini: %s", e)
+            logger.error("Gemini (%s): %s", model or config.GEMINI_MODEL, e)
             return None
+
+    def _call_gemini_flash_lite(self, prompt: str, max_tokens: int = 1500) -> Optional[str]:
+        return self._call_gemini(prompt, max_tokens=max_tokens, model=config.GEMINI_FLASH_LITE_MODEL)
+
+    def _call_openai_compatible(self, base_url: str, api_key: str, model: str, prompt: str,
+                                 max_tokens: int, extra_headers: Optional[Dict[str, str]] = None,
+                                 timeout: int = 30) -> Optional[str]:
+        """Shared helper for any OpenAI-compatible chat/completions endpoint
+        (DeepSeek, OpenRouter, etc.) — avoids pulling in the openai SDK
+        just for two providers when `requests` already does the job."""
+        try:
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            if extra_headers:
+                headers.update(extra_headers)
+            payload = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "You are StudyGenie. Reply in Hinglish. Use clean Markdown."},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.7,
+                "max_tokens": max_tokens,
+            }
+            r = requests.post(f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=headers, timeout=timeout)
+            if r.status_code >= 400:
+                logger.error("%s HTTP %s: %s", model, r.status_code, r.text[:300])
+                return None
+            data = r.json()
+            text = (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
+            return text or None
+        except Exception as e:
+            logger.error("OpenAI-compatible call (%s): %s", model, e)
+            return None
+
+    def _call_deepseek(self, prompt: str, max_tokens: int = 1500) -> Optional[str]:
+        if not config.DEEPSEEK_API_KEY:
+            return None
+        return self._call_openai_compatible(
+            config.DEEPSEEK_BASE_URL, config.DEEPSEEK_API_KEY, config.DEEPSEEK_MODEL,
+            prompt, max_tokens,
+        )
+
+    def _call_openrouter(self, prompt: str, max_tokens: int = 1500) -> Optional[str]:
+        if not config.OPENROUTER_API_KEY or not config.OPENROUTER_MODELS:
+            return None
+        headers = {
+            "HTTP-Referer": config.OPENROUTER_SITE_URL,
+            "X-Title": config.OPENROUTER_APP_NAME,
+        }
+        # Rotate through the free-model list so one saturated/rate-limited
+        # model doesn't take the whole fallback chain down with it.
+        for model in config.OPENROUTER_MODELS:
+            text = self._call_openai_compatible(
+                "https://openrouter.ai/api/v1", config.OPENROUTER_API_KEY, model,
+                prompt, max_tokens, extra_headers=headers,
+            )
+            if text:
+                return text
+        return None
 
     def answer(self, question: str, tool: str = "general", is_pro: bool = False) -> Optional[str]:
         if not question or not question.strip():
@@ -743,32 +944,29 @@ class AIService:
         base = self._base_prompt(is_pro)
         templates = self._templates(base, question.strip(), is_pro=is_pro)
         prompt = templates.get(tool, templates["general"])
-        cache_key = None
-        if db.redis:
-            try:
-                cache_key = f"cache:{hashlib.md5((tool + question + str(is_pro)).encode()).hexdigest()}"
-                cached = db.redis.get(cache_key)
-                if cached:
-                    return cached
-            except Exception:
-                pass
         max_tokens = 2800 if (is_pro and tool == "pyq") else (2000 if is_pro else (1800 if tool == "pyq" else 1400))
-        providers = [("groq", self._call_groq), ("gemini", self._call_gemini)]
-        if config.AI_PRIMARY != "groq":
-            providers = list(reversed(providers))
-        text = None
-        for name, fn in providers:
-            text = fn(prompt, max_tokens=max_tokens)
-            if text:
-                break
-        if not text:
-            return "😔 Both AI providers failed. Please try again."
-        if cache_key and db.redis:
-            try:
-                db.redis.setex(cache_key, config.CACHE_TTL, text)
-            except Exception:
-                pass
-        return text
+        # 4-provider reliability chain: Groq -> DeepSeek -> Gemini Flash-Lite
+        # -> OpenRouter (free models). Each is skipped instantly if its key
+        # isn't configured, so this degrades gracefully to whatever subset
+        # of providers you've actually set up.
+        providers = [
+            ("groq", self._call_groq),
+            ("deepseek", self._call_deepseek),
+            ("gemini_flash_lite", self._call_gemini_flash_lite),
+            ("openrouter", self._call_openrouter),
+        ]
+        # Retry the whole chain once more if every provider fails on the
+        # first pass (handles transient blips without giving up too soon).
+        for attempt in range(2):
+            for name, fn in providers:
+                text = fn(prompt, max_tokens=max_tokens)
+                if text:
+                    if attempt > 0 or name != "groq":
+                        logger.info("Answer served by fallback provider: %s", name)
+                    return text
+            if attempt == 0:
+                time.sleep(1.2)
+        return None
 
     def answer_with_image(self, img_bytes: bytes, mime: str, question: str = "", tool: str = "ocr", is_pro: bool = False) -> Optional[str]:
         if not self.gemini_client:
@@ -788,6 +986,20 @@ class AIService:
 
 
 ai = AIService()
+
+
+def get_ai_answer(question: str, tool: str, is_pro: bool) -> Optional[str]:
+    """Single entry point used by ALL surfaces (Telegram/WhatsApp/Web) so
+    caching is consistent everywhere instead of duplicated ad-hoc per route."""
+    ckey = make_cache_key(tool, question, is_pro)
+    cached = db.cache_get(ckey)
+    if cached:
+        return cached
+    text = run_ai(ai.answer, question, tool, is_pro=is_pro)
+    if text and not str(text).startswith("ERROR:"):
+        db.cache_set(ckey, text)
+        return text
+    return None
 
 
 # ============================================================================
@@ -822,13 +1034,14 @@ def main_menu(is_pro: bool = False) -> InlineKeyboardMarkup:
          InlineKeyboardButton("🛠 Tools", callback_data="menu_tools")],
         [InlineKeyboardButton("📊 Progress", callback_data="menu_progress"),
          InlineKeyboardButton("🏆 Leaderboard", callback_data="menu_lb")],
-        [InlineKeyboardButton("🔥 Streak", callback_data="menu_streak")],
+        [InlineKeyboardButton("🔥 Streak", callback_data="menu_streak"),
+         InlineKeyboardButton("🎁 Refer & Earn", callback_data="menu_refer")],
     ]
     if is_pro:
         rows.append([InlineKeyboardButton("👑 You are PRO", callback_data="menu_prostatus")])
     else:
         rows.append([InlineKeyboardButton(f"💎 Upgrade ₹{config.PRO_PRICE_INR}", callback_data="menu_upgrade")])
-    rows.append([InlineKeyboardButton("👨‍💻 About", callback_data="menu_about")])
+    rows.append([InlineKeyboardButton("👨‍💻 About Sparsh Singhal", callback_data="menu_about")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -836,11 +1049,20 @@ def tools_menu(is_pro: bool = False) -> InlineKeyboardMarkup:
     tools = [
         ("explain", "📖 Explain"), ("solve", "🧮 Solve"), ("notes", "📝 Notes"),
         ("pyq", "📜 PYQ"), ("formula", "📐 Formula"), ("planner", "📅 Planner"),
-        ("mock", "🎯 Mock"),
     ]
     if is_pro:
-        tools += [("roast", "🔥 Roast"), ("mindmap", "🧠 Mindmap"), ("mcq", "❓ MCQ"),
-                  ("career", "🚀 Career"), ("tips", "💡 Tips")]
+        # Full parity with the web sidebar — every Pro tool that exists
+        # must be reachable here, not just the ones that happened to get
+        # added first.
+        tools += [
+            ("mock", "🎯 Mock"), ("roast", "🔥 Roast"), ("mindmap", "🧠 Mindmap"),
+            ("mcq", "❓ MCQ"), ("ncert", "📘 NCERT"), ("derivation", "📐 Derivation"),
+            ("numerical", "🔢 Numerical"), ("essay", "✍️ Essay"), ("resume", "📄 Resume"),
+            ("career", "🚀 Career"), ("tips", "💡 Tips"), ("important", "⭐ Important Qs"),
+            ("diagram", "🧬 Diagram"), ("youtube", "📺 YouTube Notes"),
+        ]
+    else:
+        tools += [("mock", "🎯 Mock 🔒")]
     rows = []
     for i in range(0, len(tools), 2):
         row = [InlineKeyboardButton(tools[i][1], callback_data=f"tool_{tools[i][0]}")]
@@ -851,6 +1073,33 @@ def tools_menu(is_pro: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
+PRO_ONLY_TOOLS = {"roast", "ncert", "mindmap", "important", "diagram", "derivation", "numerical",
+                   "mcq", "essay", "resume", "youtube", "career", "tips", "mock"}
+
+# Keyword prefixes used to auto-detect which tool the user meant when they
+# just type free text instead of picking from a menu — shared by Telegram
+# and WhatsApp so both surfaces behave identically instead of WhatsApp only
+# ever running "general". Every PRO_ONLY_TOOLS entry needs a prefix here too,
+# otherwise typing the tool name is the ONLY way in and some tools become
+# unreachable if the corresponding menu button is ever missed.
+TOOL_KEYWORDS = [
+    ("explain", "explain"), ("solve", "solve"), ("notes", "notes"), ("pyq", "pyq"),
+    ("formula", "formula"), ("plan", "planner"), ("mock", "mock"), ("roast", "roast"),
+    ("mindmap", "mindmap"), ("mcq", "mcq"), ("essay", "essay"), ("resume", "resume"),
+    ("career", "career"), ("tips", "tips"), ("ncert", "ncert"), ("derivation", "derivation"),
+    ("derive", "derivation"), ("numerical", "numerical"), ("important", "important"),
+    ("diagram", "diagram"), ("youtube", "youtube"),
+]
+
+
+def detect_tool_from_text(text: str, default: str = "general") -> str:
+    lower = (text or "").lower()
+    for key, name in TOOL_KEYWORDS:
+        if lower.startswith(key):
+            return name
+    return default
+
+
 async def process_question(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, tool: str = "general") -> None:
     user = update.effective_user
     if not user:
@@ -858,57 +1107,32 @@ async def process_question(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     uid = user.id
     is_pro = db.is_pro(uid)
     db.track_activity(uid)
-    pro_only = {"roast", "ncert", "mindmap", "important", "diagram", "derivation", "numerical",
-                "mcq", "essay", "resume", "youtube", "career", "ocr", "mock", "tips"}
-    if tool in pro_only and not is_pro:
+    if tool in PRO_ONLY_TOOLS and not is_pro:
         await reply(update, f"🔒 Pro-only tool.\n\nUpgrade ₹{config.PRO_PRICE_INR}/30 days.",
                     InlineKeyboardMarkup([[InlineKeyboardButton("💎 Upgrade", callback_data="menu_upgrade")]]))
         return
     if not is_pro:
-        can, quota = db.check_quota(uid)
+        can, quota = db.try_consume_quota(uid)
         if not can:
-            await reply(update, f"❌ Free quota finished!\nDaily: {quota['daily_left']} | Lifetime: {quota['lifetime_left']}")
+            await reply(update, f"❌ Free quota finished!\nDaily: {quota['daily_left']} | Lifetime: {quota['lifetime_left']}\n\nUpgrade for unlimited access 💎")
             return
     await typing(update)
     start = time.time()
-    answer = run_ai(ai.answer, text, tool, is_pro=is_pro)
+    answer = get_ai_answer(text, tool, is_pro)
     elapsed = time.time() - start
-    if not answer or str(answer).startswith("ERROR:"):
-        await reply(update, "😔 Couldn't generate answer. Try again.")
+    if not answer:
+        await reply(update, "😔 Answer generate nahi ho paya abhi. Please dobara try karo 30 seconds baad.")
         return
-    if not is_pro:
-        db.consume_quota(uid)
     udata = db.ensure_user(uid, user.username or "", user.full_name or "Student")
     xp_gain = config.XP_QUESTION * (2 if is_pro else 1)
     xp, level = db.add_xp(uid, xp_gain)
-
     try:
-
         if db.redis:
-
             db.redis.hincrby(db._key(uid), "questions_asked", 1)
-
-        else:
-
-            _u = db.get_user(uid) or {}
-
-            _u["questions_asked"] = str(int(_u.get("questions_asked", 0)) + 1)
-
-            _u["xp"] = str(xp)
-
-            _u["level"] = str(level)
-
-            db.save_user(uid, _u)
-
+            db.redis.incr("stats:total_questions")
     except Exception:
-
         pass
     db.update_streak(uid)
-    if db.redis:
-        try:
-            db.redis.incr("stats:total_questions")
-        except Exception:
-            pass
     footer = f"\n\n━━━━━━━━━━━━━━━\n⚡ {elapsed:.1f}s | ⭐ +{xp_gain} XP{' (2× Pro)' if is_pro else ''} | Level {level}\n_ - made with love by Sparsh Singhal _"
     full = answer + footer
     if len(full) <= 4096:
@@ -925,10 +1149,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     if not user:
         return
-    db.ensure_user(user.id, user.username or "", user.full_name or "Student")
+    ref_code = ""
+    if context.args:
+        arg0 = context.args[0]
+        if arg0.startswith("ref_"):
+            ref_code = arg0[4:]
+    udata = db.ensure_user(user.id, user.username or "", user.full_name or "Student", referred_by=ref_code)
+    db.register_referral_code(user.id, udata.get("referral_code", ""))
     db.track_activity(user.id)
+    bonus_note = "\n\n🎁 Referral bonus applied!" if ref_code else ""
     await reply(update,
-                f"🎓 *Welcome to StudyGenie!*\n\nHi {user.first_name}! Type your doubt or use menu.\n\n_ - made with love by Sparsh Singhal _",
+                f"🎓 *Welcome to StudyGenie!*\n\nHi {user.first_name}! Type your doubt or use menu.{bonus_note}\n\n_ - made with love by Sparsh Singhal _",
                 main_menu(db.is_pro(user.id)))
 
 
@@ -944,15 +1175,9 @@ async def free_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not text:
         return
     uid = update.effective_user.id if update.effective_user else 0
-    tool = db.pop_tool(uid) or "general"
-    lower = text.lower()
-    for key, name in [("explain", "explain"), ("solve", "solve"), ("notes", "notes"), ("pyq", "pyq"),
-                      ("formula", "formula"), ("plan", "planner"), ("mock", "mock"), ("roast", "roast"),
-                      ("mindmap", "mindmap"), ("mcq", "mcq"), ("essay", "essay"), ("resume", "resume"),
-                      ("career", "career"), ("tips", "tips"), ("ncert", "ncert")]:
-        if lower.startswith(key):
-            tool = name
-            break
+    # Explicit tool selection (via /Tools menu) wins; otherwise auto-detect
+    # from the message text itself using the same keyword logic WhatsApp uses.
+    tool = db.pop_tool(uid) or detect_tool_from_text(text)
     await process_question(update, context, text, tool)
 
 
@@ -989,6 +1214,23 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await reply(update, "\n".join(lines))
 
 
+async def refer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user:
+        return
+    udata = db.ensure_user(user.id, user.username or "", user.full_name or "Student")
+    code = udata.get("referral_code", "")
+    db.register_referral_code(user.id, code)
+    bot_username = context.bot.username if context.bot else "StudyGenieBot"
+    link = f"https://t.me/{bot_username}?start=ref_{code}"
+    count = udata.get("referral_count", "0")
+    await reply(update,
+                f"🎁 *Refer & Earn – StudyGenie by Sparsh Singhal*\n\n"
+                f"Apna link doston ko bhejo:\n{link}\n\n"
+                f"✅ Har referral pe +50 XP\n✅ Har 5 referral pe 3 din FREE Pro\n\n"
+                f"👥 Total referrals: {count}")
+
+
 async def upgrade(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     uid = user.id if user else 0
@@ -1001,7 +1243,7 @@ async def upgrade(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def about_sparsh(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await reply(update, "👨‍💻 *Sparsh Singhal*\n\nCreator of StudyGenie – built with ❤️ for Indian students.")
+    await reply(update, "👨‍💻 *Sparsh Singhal*\n\nCreator & Developer of StudyGenie 🎓\nBuilt with ❤️ for Indian students — gamified learning for every exam.\n\n_StudyGenie — by Sparsh Singhal_")
 
 
 async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1025,6 +1267,8 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await leaderboard(update, context)
     elif data == "menu_streak":
         await streak_cmd(update, context)
+    elif data == "menu_refer":
+        await refer_cmd(update, context)
     elif data == "menu_upgrade":
         await upgrade(update, context)
     elif data == "menu_about":
@@ -1033,6 +1277,10 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await reply(update, "👑 You are PRO. Enjoy unlimited power!")
     elif data.startswith("tool_"):
         tool = data.replace("tool_", "")
+        if tool in PRO_ONLY_TOOLS and not is_pro:
+            await reply(update, f"🔒 Pro-only tool.\n\nUpgrade ₹{config.PRO_PRICE_INR}/30 days.",
+                        InlineKeyboardMarkup([[InlineKeyboardButton("💎 Upgrade", callback_data="menu_upgrade")]]))
+            return
         db.set_tool(uid, tool)
         await reply(update, f"✅ Tool: *{tool}*\nAb sawaal type karo.")
 
@@ -1065,12 +1313,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         try:
             if db.redis:
                 db.redis.hincrby(db._key(uid), "questions_asked", 1)
-            else:
-                udata = db.get_user(uid) or udata
-                udata["questions_asked"] = str(int(udata.get("questions_asked", 0)) + 1)
-                udata["xp"] = str(xp)
-                udata["level"] = str(level)
-                db.save_user(uid, udata)
         except Exception:
             pass
         footer = f"\n\n━━━━━━━━━━━━━━━\n📷 OCR | ⚡ {elapsed:.1f}s | ⭐ +{xp_gain} XP (2× Pro) | Level {level}"
@@ -1106,6 +1348,7 @@ async def get_app() -> Application:
         app_.add_handler(CommandHandler("progress", progress))
         app_.add_handler(CommandHandler("streak", streak_cmd))
         app_.add_handler(CommandHandler("leaderboard", leaderboard))
+        app_.add_handler(CommandHandler("refer", refer_cmd))
         app_.add_handler(CommandHandler("upgrade", upgrade))
         app_.add_handler(CommandHandler("about", about_sparsh))
         app_.add_handler(CallbackQueryHandler(callback))
@@ -1122,22 +1365,38 @@ def process_whatsapp_message(from_number: str, text: str, profile_name: str = ""
     db.ensure_user(uid, full_name=profile_name or "WhatsApp Student", platform="whatsapp")
     db.track_activity(uid)
     is_pro = db.is_pro(uid)
-    if not is_pro:
-        can, _ = db.check_quota(uid)
-        if not can:
-            return
-    answer = run_ai(ai.answer, text, "general", is_pro=is_pro)
-    if not answer or str(answer).startswith("ERROR:"):
+    tool = detect_tool_from_text(text)
+    if tool in PRO_ONLY_TOOLS and not is_pro:
+        _send_whatsapp_text(from_number, f"🔒 Pro-only tool.\n\nUpgrade ₹{config.PRO_PRICE_INR}/30 days — StudyGenie by Sparsh Singhal.")
         return
     if not is_pro:
-        db.consume_quota(uid)
-    db.add_xp(uid, config.XP_QUESTION * (2 if is_pro else 1))
+        can, quota = db.try_consume_quota(uid)
+        if not can:
+            _send_whatsapp_text(from_number, f"❌ Free quota finished!\nDaily: {quota['daily_left']} | Lifetime: {quota['lifetime_left']}\n\nUpgrade for unlimited access 💎")
+            return
+    answer = get_ai_answer(text, tool, is_pro)
+    if not answer:
+        _send_whatsapp_text(from_number, "😔 Abhi answer generate nahi ho paya. Please 30 second baad dobara try karo.")
+        return
+    db.update_streak(uid)
+    xp, level = db.add_xp(uid, config.XP_QUESTION * (2 if is_pro else 1))
+    if db.redis:
+        try:
+            db.redis.hincrby(db._key(uid), "questions_asked", 1)
+            db.redis.incr("stats:total_questions")
+        except Exception:
+            pass
+    footer = f"\n\n━━━━━━━━━━━━━━━\n⭐ +{config.XP_QUESTION * (2 if is_pro else 1)} XP{' (2× Pro)' if is_pro else ''} | Level {level}\n- made with love by Sparsh Singhal"
+    _send_whatsapp_text(from_number, answer + footer)
+
+
+def _send_whatsapp_text(to_number: str, body: str) -> None:
     if config.WHATSAPP_TOKEN and config.WHATSAPP_PHONE_NUMBER_ID:
         try:
             url = f"https://graph.facebook.com/{config.WHATSAPP_API_VERSION}/{config.WHATSAPP_PHONE_NUMBER_ID}/messages"
             headers = {"Authorization": f"Bearer {config.WHATSAPP_TOKEN}", "Content-Type": "application/json"}
-            requests.post(url, json={"messaging_product": "whatsapp", "to": from_number, "type": "text",
-                                     "text": {"body": answer[:4000]}}, headers=headers, timeout=15)
+            requests.post(url, json={"messaging_product": "whatsapp", "to": to_number, "type": "text",
+                                     "text": {"body": body[:4000]}}, headers=headers, timeout=15)
         except Exception as e:
             logger.error("WA send: %s", e)
 
@@ -1157,6 +1416,7 @@ FRONTEND_HTML = r"""
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StudyGenie by Sparsh Singhal</title>
+<meta name="description" content="StudyGenie — India's gamified AI tutor, built by Sparsh Singhal.">
 <style>
 :root{--bg:#0b1220;--card:#111827;--accent:#22d3ee;--text:#f1f5f9;--muted:#94a3b8;--border:rgba(255,255,255,0.08)}
 *{box-sizing:border-box;margin:0;padding:0}
@@ -1180,6 +1440,7 @@ main{flex:1;display:grid;grid-template-columns:280px 1fr;max-width:1400px;margin
 .creator-card img{width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)}
 .creator-card .name{font-weight:700;font-size:.9rem}
 .creator-card .role{font-size:.72rem;color:var(--muted)}
+.refer-side{display:block;width:100%;margin:.5rem 0;background:#0f172a;border:1px solid var(--accent);color:var(--accent);border-radius:10px;padding:.6rem;font-weight:700;cursor:pointer;font-size:.85rem}
 .chat-area{display:flex;flex-direction:column;height:calc(100vh - 64px)}
 .messages{flex:1;overflow-y:auto;padding:1.25rem;display:flex;flex-direction:column;gap:1rem}
 .msg{max-width:88%;padding:.95rem 1.1rem;border-radius:16px;line-height:1.6;word-break:break-word}
@@ -1220,6 +1481,8 @@ button.send:disabled{opacity:.5}
 .btn-pro{background:linear-gradient(90deg,#a78bfa,#ec4899);color:#fff}
 .btn-close{background:#0f172a;color:var(--text);border:1px solid var(--border)!important}
 input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border:1px solid var(--border);background:#0f172a;color:var(--text);font-size:1rem}
+footer.brand-footer{text-align:center;padding:.5rem;font-size:.72rem;color:var(--muted);border-top:1px solid var(--border);background:var(--card)}
+footer.brand-footer strong{color:var(--accent)}
 </style>
 </head>
 <body>
@@ -1242,7 +1505,7 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
 <main>
   <aside class="sidebar">
     <div class="creator-card">
-      <img src="/sparsh.jpg" alt="Sparsh" onerror="this.style.display='none'">
+      <img src="/sparsh.jpg" alt="Sparsh Singhal" onerror="this.style.display='none'">
       <div>
         <div class="name">Sparsh Singhal</div>
         <div class="role">Creator of StudyGenie</div>
@@ -1256,7 +1519,7 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
     <button class="tool-btn" data-tool="pyq">📜 PYQ</button>
     <button class="tool-btn" data-tool="formula">📐 Formula</button>
     <button class="tool-btn" data-tool="planner">📅 Planner</button>
-    <button class="tool-btn" data-tool="mock">🎯 Mock Test</button>
+    <button class="tool-btn" data-tool="mock">🎯 Mock Test <span class="pro-badge">PRO</span></button>
     <button class="tool-btn" data-tool="roast">🔥 Roast <span class="pro-badge">PRO</span></button>
     <button class="tool-btn" data-tool="mindmap">🧠 Mind Map <span class="pro-badge">PRO</span></button>
     <button class="tool-btn" data-tool="mcq">❓ MCQ Generator <span class="pro-badge">PRO</span></button>
@@ -1267,7 +1530,11 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
     <button class="tool-btn" data-tool="resume">📄 Resume <span class="pro-badge">PRO</span></button>
     <button class="tool-btn" data-tool="career">🚀 Career Guide <span class="pro-badge">PRO</span></button>
     <button class="tool-btn" data-tool="tips">💡 Sparsh Tips <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="important">⭐ Important Qs <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="diagram">🧬 Diagram Explain <span class="pro-badge">PRO</span></button>
+    <button class="tool-btn" data-tool="youtube">📺 YouTube Notes <span class="pro-badge">PRO</span></button>
     <button class="pay-side" onclick="openProModal()">🔫 Ammo khatam. Please upgrade to PRO – ₹{{ price }} for 30 days</button>
+    <button class="refer-side" onclick="openReferModal()">🎁 Refer & Earn Free Pro</button>
     <h3>🏆 Live Leaderboard</h3>
     <div id="lb-list">Loading...</div>
   </aside>
@@ -1290,7 +1557,7 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
           <option value="pyq">PYQ</option>
           <option value="formula">Formula</option>
           <option value="planner">Planner</option>
-          <option value="mock">Mock</option>
+          <option value="mock">Mock (Pro)</option>
           <option value="roast">Roast (Pro)</option>
           <option value="mindmap">Mindmap (Pro)</option>
           <option value="mcq">MCQ (Pro)</option>
@@ -1301,17 +1568,21 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
           <option value="resume">Resume (Pro)</option>
           <option value="career">Career (Pro)</option>
           <option value="tips">Tips (Pro)</option>
+          <option value="important">Important Qs (Pro)</option>
+          <option value="diagram">Diagram (Pro)</option>
+          <option value="youtube">YouTube Notes (Pro)</option>
         </select>
         <button onclick="onImageButtonClick()">📷 Image</button>
         <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="handleImage(this)">
       </div>
       <div class="input-row">
-        <textarea id="question" placeholder="Apna sawaal yahan likho..." rows="1"></textarea>
+        <textarea id="question" placeholder="Dimaag mein kya ghoom raha hai? Poocho... 🔥" rows="1"></textarea>
         <button class="send" id="sendBtn" onclick="ask()">🔥 Fire</button>
       </div>
     </div>
   </section>
 </main>
+<footer class="brand-footer">🎓 StudyGenie — built with ❤️ by <strong>Sparsh Singhal</strong></footer>
 
 <div class="modal-bg" id="proModal">
   <div class="modal">
@@ -1319,15 +1590,33 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
     <div class="price">₹{{ price }} <span style="font-size:1rem;color:var(--muted)">/ 30 days</span></div>
     <ul>
       <li>Unlimited questions</li>
-      <li>🔥 Roast • 🧠 Mind Maps • ❓ MCQ</li>
+      <li>🔥 Roast • 🧠 Mind Maps • ❓ MCQ • 🎯 Mock Tests</li>
       <li>📘 NCERT • 📐 Derivation • 🔢 Numerical</li>
       <li>📷 Image OCR • ✍️ Essay • 📄 Resume</li>
+      <li>⭐ Important Qs • 🧬 Diagram • 📺 YouTube Notes</li>
       <li>🚀 Career • 💡 Tips • ⭐ 2× XP</li>
     </ul>
     <div class="actions">
       <button class="btn-pro" onclick="goPay()">Pay & Unlock Pro</button>
       <button class="btn-close" onclick="closeProModal()">Close</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="referModal">
+  <div class="modal">
+    <h2>🎁 Refer & Earn — by Sparsh Singhal</h2>
+    <p style="color:var(--muted);font-size:.9rem;margin-top:.4rem">Apna referral link doston ko bhejo:</p>
+    <input id="referLinkBox" class="name-input" type="text" readonly />
+    <ul style="margin-top:.75rem">
+      <li>Har referral pe +50 XP</li>
+      <li>Har 5 referral pe 3 din FREE Pro</li>
+    </ul>
+    <div class="actions">
+      <button class="btn-pro" onclick="copyReferLink()">Copy Link</button>
+      <button class="btn-close" onclick="closeReferModal()">Close</button>
+    </div>
+    <p id="referMsg" style="margin-top:.6rem;font-size:.85rem;color:var(--muted)"></p>
   </div>
 </div>
 
@@ -1360,8 +1649,97 @@ input.name-input{width:100%;padding:.7rem;margin:1rem 0;border-radius:8px;border
 <script>
 const PRICE = {{ price }};
 let currentTool = "general";
+let referCode = "";
 
+// --- Pro upgrade modal — these were referenced by onclick= handlers above
+// but never implemented, so the main monetization button did nothing at all.
+function openProModal(){
+  const m = document.getElementById("proModal");
+  if(!m) return;
+  m.classList.add("show");
+  try{ soundClick(); }catch(e){}
+}
+function closeProModal(){
+  const m = document.getElementById("proModal");
+  if(m) m.classList.remove("show");
+}
+function goPay(){
+  try{ soundClick(); }catch(e){}
+  window.location.href = "/pay?uid=" + encodeURIComponent("web:" + clientId);
+}
 
+// --- Hidden Dev Mode — tap the logo 5× within 3 seconds to open it.
+// (devModal already existed in the HTML but had no way to open it.)
+function openDevModal(){
+  const m = document.getElementById("devModal");
+  if(!m) return;
+  m.classList.add("show");
+  try{ soundClick(); }catch(e){}
+}
+function closeDevModal(){
+  const m = document.getElementById("devModal");
+  if(m) m.classList.remove("show");
+}
+async function checkDev(){
+  const codeInput = document.getElementById("devCode");
+  const msg = document.getElementById("devMsg");
+  const code = (codeInput && codeInput.value || "").trim();
+  if(!code){
+    if(msg){ msg.style.color = "#f87171"; msg.textContent = "Enter a code."; }
+    return;
+  }
+  try{
+    const res = await fetch("/api/dev/activate-pro", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ code, uid: "web:" + clientId })
+    });
+    const data = await res.json();
+    if(data.ok){
+      if(msg){ msg.style.color = "#22d3ee"; msg.textContent = "✅ Pro activated for testing!"; }
+      isProUser = true;
+      syncProfile();
+      try{ soundRecv(); }catch(e){}
+      setTimeout(closeDevModal, 700);
+    }else{
+      if(msg){ msg.style.color = "#f87171"; msg.textContent = data.error || "Invalid code."; }
+      try{ soundError(); }catch(e){}
+    }
+  }catch(e){
+    if(msg){ msg.style.color = "#f87171"; msg.textContent = "Network error"; }
+  }
+}
+
+function openReferModal(){
+  const m = document.getElementById("referModal");
+  if(!m) return;
+  m.classList.add("show");
+  fetch("/api/me?client_id=" + encodeURIComponent(clientId)).then(r=>r.json()).then(data=>{
+    if(data.ok && data.referral_code){
+      referCode = data.referral_code;
+      const box = document.getElementById("referLinkBox");
+      if(box) box.value = window.location.origin + "/?ref=" + referCode;
+    }
+  });
+  try{ soundClick(); }catch(e){}
+}
+function closeReferModal(){
+  const m = document.getElementById("referModal");
+  if(m) m.classList.remove("show");
+}
+function copyReferLink(){
+  const box = document.getElementById("referLinkBox");
+  const msg = document.getElementById("referMsg");
+  if(!box || !box.value) return;
+  box.select();
+  try{
+    navigator.clipboard.writeText(box.value);
+    if(msg){ msg.style.color="#22d3ee"; msg.textContent = "Copied! Share karo doston ke saath."; }
+    soundRecv();
+  }catch(e){
+    if(msg) msg.textContent = "Copy manually.";
+  }
+}
 
 function onImageButtonClick(){
   if(!isProUser){
@@ -1485,7 +1863,10 @@ async function saveName(){
 
 async function syncProfile(){
   try{
-    const res = await fetch("/api/me?client_id=" + encodeURIComponent(clientId));
+    const params = new URLSearchParams(window.location.search);
+    const refFromUrl = params.get("ref") || "";
+    const url = "/api/me?client_id=" + encodeURIComponent(clientId) + (refFromUrl ? "&ref=" + encodeURIComponent(refFromUrl) : "");
+    const res = await fetch(url);
     const data = await res.json();
     if(!data.ok) return;
     if(data.name && data.name !== "Web Student" && data.name !== "Student"){
@@ -1513,6 +1894,30 @@ async function syncProfile(){
 }
 syncProfile();
 
+const TOOL_PLACEHOLDERS = {
+  general: "Dimaag mein kya ghoom raha hai? Poocho... 🔥",
+  explain: "Konsa concept bhoot ban gaya hai samajh mein? 👻",
+  solve: "Problem yahan daalo, sulja denge 💪",
+  notes: "Last-minute revision? Topic bolo, notes ready 📝",
+  pyq: "Purana paper khodna hai? Topic bata, khazana milega 🕵️",
+  formula: "Formula bhool gaye? Koi na, yahan maang lo 📐",
+  planner: "Aalas chhodo, ab plan banate hain 📅",
+  mock: "Ready ho jao — asli exam jaisa mahaul milega 🎯",
+  roast: "Dimaag lagao, warna pyaar se roast ho jaoge 🔥😂",
+  mindmap: "Topic do, branches khud ugengi 🧠🌳",
+  mcq: "Options mein ghoomte ho? Practice yahan karo ❓",
+  ncert: "Seedhi-saadi NCERT wali baat chahiye? Yahan bolo 📘",
+  derivation: "Formula aaya kahan se? Chalo jadd tak jaate hain 📐✨",
+  numerical: "Number crunching time! Problem daalo yahan 🔢",
+  essay: "Shabdon ka jaadu chahiye? Topic bolo, likh dete hain ✍️",
+  resume: "Apna CV chamkaate hain — details daalo 📄✨",
+  career: "Future ka confusion? Befikar poocho 🚀",
+  tips: "Sparsh bhaiya ke secret tips chahiye? Bolo 💡",
+  important: "100% exam mein aane wale sawaal chahiye? Bolo ⭐",
+  diagram: "Diagram dekh ke ghabraya mat, samjha dete hain 🧬",
+  youtube: "Lecture dekhne ka time nahi? Summary yahan lo 📺",
+};
+
 function setTool(tool){
   if(!tool) return;
   currentTool = tool;
@@ -1523,6 +1928,10 @@ function setTool(tool){
   if(sel){
     // if option missing, keep value anyway
     sel.value = tool;
+  }
+  const qBox = document.getElementById("question");
+  if(qBox){
+    qBox.placeholder = TOOL_PLACEHOLDERS[tool] || TOOL_PLACEHOLDERS.general;
   }
   try{ soundClick(); }catch(e){}
 }
@@ -1540,6 +1949,18 @@ let imageBase64 = null;
 let isProUser = false;
 let logoClicks = 0;
 let logoTimer = null;
+const _logoEl = document.getElementById("logoClick");
+if(_logoEl){
+  _logoEl.addEventListener("click", () => {
+    logoClicks++;
+    if(logoTimer) clearTimeout(logoTimer);
+    logoTimer = setTimeout(() => { logoClicks = 0; }, 3000);
+    if(logoClicks >= 5){
+      logoClicks = 0;
+      openDevModal();
+    }
+  });
+}
 
 const AudioCtx = window.AudioContext || window.webkitAudioContext;
 let actx = null;
@@ -1749,7 +2170,7 @@ PAY_HTML = r"""
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Upgrade Pro – StudyGenie</title>
+<title>Upgrade Pro – StudyGenie by Sparsh Singhal</title>
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <style>
 body{font-family:system-ui,sans-serif;background:#0b1220;color:#f1f5f9;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
@@ -1761,6 +2182,8 @@ button{background:#22d3ee;color:#0b1220;border:none;border-radius:12px;padding:.
 button:disabled{opacity:.5}
 .msg{margin-top:1rem;font-size:.9rem;color:#94a3b8}
 a{color:#22d3ee}
+.creator{display:flex;align-items:center;gap:.6rem;justify-content:center;margin-top:1rem;font-size:.8rem;color:#94a3b8}
+.creator img{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid #22d3ee}
 </style>
 </head>
 <body>
@@ -1777,6 +2200,7 @@ a{color:#22d3ee}
   <button id="payBtn" onclick="startPay()">Pay ₹{{ price }} Securely</button>
   <p class="msg" id="status">User: {{ uid }}</p>
   <p class="msg"><a href="/">← Back to StudyGenie</a></p>
+  <div class="creator"><img src="/sparsh.jpg" alt="Sparsh Singhal" onerror="this.style.display='none'"> Built by Sparsh Singhal</div>
 </div>
 <script>
 const UID={{ uid|tojson }};
@@ -1854,8 +2278,10 @@ def api_me():
     client_id = (request.args.get("client_id") or "").strip()
     if not client_id:
         return jsonify({"ok": False, "error": "client_id required"}), 400
+    ref = (request.args.get("ref") or "").strip()
     uid = f"web:{client_id}"
-    user = db.ensure_user(uid, full_name="Web Student", platform="web")
+    user = db.ensure_user(uid, full_name="Web Student", platform="web", referred_by=ref)
+    db.register_referral_code(uid, user.get("referral_code", ""))
     xp = int(user.get("xp", 0) or 0)
     level = int(user.get("level", 1) or 1)
     return jsonify({
@@ -1866,6 +2292,8 @@ def api_me():
         "level": level,
         "plan": "pro" if db.is_pro(uid) else "free",
         "quota": db.check_quota(uid)[1],
+        "referral_code": user.get("referral_code", ""),
+        "referral_count": user.get("referral_count", "0"),
     })
 
 @app.route("/api/set-name", methods=["POST"])
@@ -1895,59 +2323,62 @@ def health():
             pass
     return jsonify({
         "ok": True, "redis": redis_ok,
-        "groq": ai.groq_client is not None, "gemini": ai.gemini_client is not None,
-        "primary": config.AI_PRIMARY,
-        "version": "StudyGenie v4.0 (XP-fix+Cache+UI)",
+        "providers": {
+            "groq": ai.groq_client is not None,
+            "deepseek": ai.deepseek_ready,
+            "gemini_flash_lite": ai.gemini_client is not None,
+            "openrouter": ai.openrouter_ready,
+        },
+        "version": "StudyGenie v6.0 (4-Provider Fallback Chain+Referral+Security)",
         "creator": "Sparsh Singhal",
     })
 
 
 @app.route("/api/debug/ai")
 def debug_ai():
-    results = {"primary": config.AI_PRIMARY, "groq_key_present": bool(config.GROQ_API_KEY),
-               "gemini_key_present": bool(config.GOOGLE_API_KEY)}
-    if ai.groq_client:
+    if not config.DEV_SECRET or not hmac.compare_digest(request.args.get("code", ""), config.DEV_SECRET):
+        return jsonify({"ok": False}), 403
+    results: Dict[str, Any] = {
+        "chain_order": ["groq", "deepseek", "gemini_flash_lite", "openrouter"],
+        "keys_present": {
+            "groq": bool(config.GROQ_API_KEY),
+            "deepseek": bool(config.DEEPSEEK_API_KEY),
+            "gemini": bool(config.GOOGLE_API_KEY),
+            "openrouter": bool(config.OPENROUTER_API_KEY),
+        },
+    }
+    test_prompt = "Say exactly: OK StudyGenie"
+
+    def _timed(fn, *a, **kw):
         t0 = time.time()
         try:
-            resp = ai.groq_client.chat.completions.create(
-                model=config.GROQ_MODEL,
-                messages=[{"role": "user", "content": "Say exactly: OK StudyGenie"}],
-                max_tokens=100, temperature=0,
-            )
-            text = ""
-            fr = None
-            if resp.choices:
-                c = resp.choices[0]
-                fr = getattr(c, "finish_reason", None)
-                if c.message and c.message.content:
-                    text = c.message.content.strip()
-            results["groq"] = {"ok": bool(text), "model": config.GROQ_MODEL, "reply": text[:200],
-                               "finish_reason": fr, "elapsed": round(time.time() - t0, 2)}
+            text = fn(*a, **kw)
+            return {"ok": bool(text), "reply": (text or "")[:200], "elapsed": round(time.time() - t0, 2)}
         except Exception as e:
-            results["groq"] = {"ok": False, "model": config.GROQ_MODEL, "error": str(e),
-                               "elapsed": round(time.time() - t0, 2)}
+            return {"ok": False, "error": str(e), "elapsed": round(time.time() - t0, 2)}
+
+    if ai.groq_client:
+        results["groq"] = {**_timed(ai._call_groq, test_prompt, max_tokens=50), "model": config.GROQ_MODEL}
     else:
         results["groq"] = {"ok": False, "error": "not initialized"}
-    if ai.gemini_client:
-        t0 = time.time()
-        try:
-            resp = ai.gemini_client.models.generate_content(
-                model=config.GEMINI_MODEL, contents="Say exactly: OK StudyGenie",
-                config=genai_types.GenerateContentConfig(temperature=0, max_output_tokens=100),
-            )
-            text = ""
-            try:
-                if hasattr(resp, "text") and resp.text:
-                    text = resp.text.strip()
-            except Exception:
-                pass
-            results["gemini"] = {"ok": bool(text), "model": config.GEMINI_MODEL, "reply": text[:200],
-                                 "elapsed": round(time.time() - t0, 2)}
-        except Exception as e:
-            results["gemini"] = {"ok": False, "model": config.GEMINI_MODEL, "error": str(e),
-                                 "elapsed": round(time.time() - t0, 2)}
+
+    if ai.deepseek_ready:
+        results["deepseek"] = {**_timed(ai._call_deepseek, test_prompt, max_tokens=50), "model": config.DEEPSEEK_MODEL}
     else:
-        results["gemini"] = {"ok": False, "error": "not initialized"}
+        results["deepseek"] = {"ok": False, "error": "DEEPSEEK_API_KEY not set"}
+
+    if ai.gemini_client:
+        results["gemini_flash_lite"] = {**_timed(ai._call_gemini_flash_lite, test_prompt, max_tokens=50),
+                                         "model": config.GEMINI_FLASH_LITE_MODEL}
+    else:
+        results["gemini_flash_lite"] = {"ok": False, "error": "not initialized"}
+
+    if ai.openrouter_ready:
+        results["openrouter"] = {**_timed(ai._call_openrouter, test_prompt, max_tokens=50),
+                                  "models_tried": config.OPENROUTER_MODELS}
+    else:
+        results["openrouter"] = {"ok": False, "error": "OPENROUTER_API_KEY not set"}
+
     return jsonify(results)
 
 
@@ -1960,20 +2391,20 @@ def web_ask():
     image_b64 = data.get("image_base64") or ""
     if is_rate_limited(f"web:{client_id}", max_calls=8, window_sec=60):
         return jsonify({"answer": "Too many requests. Wait a minute.\n\n- made with love by Sparsh Singhal"}), 429
+    if len(image_b64) > 6_500_000:  # ~4.5MB binary -> base64 overhead cap
+        return jsonify({"answer": "Image too large. Please use under ~4MB.\n\n- made with love by Sparsh Singhal"}), 400
     if not q and not image_b64:
         return jsonify({"answer": "Please type a question or upload an image"}), 400
     uid = f"web:{client_id}"
     udata = db.ensure_user(uid, full_name="Web Student", platform="web")
     db.track_activity(uid)
     is_pro = db.is_pro(uid)
-    pro_only = {"roast", "ncert", "mindmap", "important", "diagram", "derivation", "numerical",
-                "mcq", "essay", "resume", "youtube", "career", "voice", "ocr", "mock", "tips"}
-    if (tool in pro_only or image_b64) and not is_pro:
+    if (tool in PRO_ONLY_TOOLS or image_b64) and not is_pro:
         return jsonify({"answer": f"🔒 Pro-only.\n\nUpgrade ₹{config.PRO_PRICE_INR}/30 days.\n\n- made with love by Sparsh Singhal"})
     if not is_pro:
-        can, quota = db.check_quota(uid)
+        can, quota = db.try_consume_quota(uid)
         if not can:
-            return jsonify({"answer": "❌ Quota finished! Upgrade to Pro.\n\n- made with love by Sparsh Singhal", "quota": quota})
+            return jsonify({"answer": "❌ Quota finished! Upgrade to Pro for unlimited access.\n\n- made with love by Sparsh Singhal", "quota": quota})
     start = time.time()
     cached = False
     answer = None
@@ -1995,47 +2426,21 @@ def web_ask():
                 db.cache_set(ckey, answer)
     elapsed = time.time() - start
     if not answer or str(answer).startswith("ERROR:"):
-        reason = str(answer)[6:].strip() if str(answer).startswith("ERROR:") else "empty"
-        # soft, user-facing
-        tip = "AI busy/timeout. 10 sec baad phir try karo."
-        if "timeout" in reason.lower() or "timed out" in reason.lower():
-            tip = "AI timeout. Chhota sawaal try karo ya 15 sec baad dubara."
-        elif "rate" in reason.lower() or "429" in reason:
-            tip = "Rate limit. 1 minute wait karo."
+        # Friendly, non-leaky message — technical detail stays server-side in logs only.
+        logger.warning("AI failure for uid=%s tool=%s reason=%s", uid, tool, answer)
         return jsonify({
-            "answer": f"😔 Couldn't generate answer. {tip}\n\n_debug: {reason[:120]}\n\n- made with love by Sparsh Singhal"
+            "answer": "😔 Abhi answer generate nahi ho paya. 15-20 second baad phir try karo.\n\n- made with love by Sparsh Singhal"
         })
     if not is_pro:
-        db.consume_quota(uid)
+        pass  # already consumed atomically above via try_consume_quota
     xp_gain = config.XP_QUESTION * (2 if is_pro else 1)
     xp, level = db.add_xp(uid, xp_gain)
-
     try:
-
         if db.redis:
-
             db.redis.hincrby(db._key(uid), "questions_asked", 1)
-
-        else:
-
-            _u = db.get_user(uid) or {}
-
-            _u["questions_asked"] = str(int(_u.get("questions_asked", 0)) + 1)
-
-            _u["xp"] = str(xp)
-
-            _u["level"] = str(level)
-
-            db.save_user(uid, _u)
-
-    except Exception:
-
-        pass
-    if db.redis:
-        try:
             db.redis.incr("stats:total_questions")
-        except Exception:
-            pass
+    except Exception:
+        pass
     _, quota = db.check_quota(uid)
     rank = db.get_rank(uid)
     footer = (
@@ -2056,7 +2461,7 @@ def api_leaderboard():
 
 @app.route("/api/dev/stats")
 def dev_stats():
-    if request.args.get("code", "") != config.DEV_SECRET:
+    if not config.DEV_SECRET or not hmac.compare_digest(request.args.get("code", ""), config.DEV_SECRET):
         return jsonify({"ok": False}), 403
     s = db.get_stats()
     return jsonify({"ok": True, **s})
@@ -2065,12 +2470,15 @@ def dev_stats():
 @app.route("/api/razorpay/webhook", methods=["POST"])
 def razorpay_webhook():
     try:
+        if not config.RAZORPAY_WEBHOOK_SECRET:
+            # Never process payment events without a verified signature.
+            logger.error("Razorpay webhook received but RAZORPAY_WEBHOOK_SECRET is not configured — rejecting.")
+            return jsonify({"ok": False, "error": "webhook not configured"}), 503
         body = request.get_data()
         received_sig = request.headers.get("X-Razorpay-Signature", "")
-        if config.RAZORPAY_WEBHOOK_SECRET:
-            expected = hmac.new(config.RAZORPAY_WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
-            if not hmac.compare_digest(expected, received_sig):
-                return jsonify({"ok": False}), 400
+        expected = hmac.new(config.RAZORPAY_WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, received_sig):
+            return jsonify({"ok": False}), 400
         payload = request.get_json(force=True)
         if payload.get("event") == "payment.captured":
             entity = payload.get("payload", {}).get("payment", {}).get("entity", {})
@@ -2164,8 +2572,10 @@ def setup():
 
 @app.route("/api/dev/activate-pro", methods=["POST"])
 def dev_activate_pro():
+    if not config.DEV_SECRET:
+        return jsonify({"ok": False, "error": "dev mode disabled"}), 403
     data = request.get_json(silent=True) or {}
-    if (data.get("code") or "") != config.DEV_SECRET:
+    if not hmac.compare_digest((data.get("code") or ""), config.DEV_SECRET):
         return jsonify({"ok": False, "error": "unauthorized"}), 403
     uid = (data.get("uid") or "").strip()
     if not uid:
@@ -2173,5 +2583,12 @@ def dev_activate_pro():
     db.ensure_user(uid, full_name="Pro Tester", platform="web")
     ok = db.activate_pro(uid, days=30)
     return jsonify({"ok": bool(ok), "uid": uid, "plan": "pro", "days": 30})
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+    # threaded=True lets Flask's dev server handle multiple concurrent
+    # requests (AI calls already run off-thread via the pool, so the web
+    # worker itself must not block on them). For real production traffic,
+    # run behind gunicorn with multiple workers instead of this dev server:
+    #   gunicorn -w 4 -k gthread --threads 8 -b 0.0.0.0:$PORT studygenie_bot:app
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), threaded=True)
