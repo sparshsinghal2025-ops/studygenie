@@ -1078,14 +1078,68 @@ class AIService:
         if not self.gemini_client:
             return SOFT_FAIL_MSG
         base = self._base_prompt(is_pro)
-        prompt = f"{base}Look at the image and solve/explain. Extra: {question or 'Explain fully'}"
+        tool = (tool or "general").strip().lower()
+        mime = mime or "image/jpeg"
+        is_pdf = "pdf" in (mime or "").lower()
+        tool_jobs = {
+            "general": "Read the content and give a clear, complete exam-oriented answer.",
+            "explain": "Explain every concept in the file step-by-step in simple Hinglish.",
+            "solve": "Solve all questions/problems visible. Show steps and final answers.",
+            "notes": "Make short, structured revision notes from the content.",
+            "formula": "Extract and list all formulas with one-line meaning each.",
+            "planner": "Turn the content into a practical study plan.",
+            "pyq": "Frame/solve as previous-year style Q&A based on the content.",
+            "mock": "Create a short mock test from the content + answer key.",
+            "mcq": "Create MCQs from the content with correct options marked.",
+            "ocr": "Transcribe clearly, then solve/explain any questions found.",
+            "numerical": "Solve all numerical problems with steps and units.",
+            "derivation": "Write clean derivations for any laws/formulas shown.",
+            "ncert": "Explain in NCERT textbook style.",
+            "important": "List important questions/points for exams from this content.",
+            "diagram": "Explain the diagram/figure labeled and exam-ready.",
+            "roast": "Light roast then teach the content properly.",
+            "mindmap": "Build a hierarchical mindmap of the content.",
+            "essay": "Write an essay/letter style response based on the content.",
+            "resume": "Improve or draft resume content based on the file.",
+            "youtube": "If this relates to a lecture, make structured study notes.",
+            "career": "Give career guidance linked to the content.",
+            "tips": "Give Sparsh-style exam tips based on the content.",
+        }
+        job = tool_jobs.get(tool, tool_jobs["general"])
+        file_word = "PDF document" if is_pdf else "image"
+        user_q = (question or "").strip()
+        prompt = (
+            f"{base}\n"
+            f"You are given a {file_word}. Selected tool = **{tool}**.\n"
+            f"YOUR JOB: {job}\n"
+            f"User question (optional): {user_q or 'None — still do the tool job fully on the file content.'}\n\n"
+            "RULES:\n"
+            "- Do NOT say that you received the image/PDF or that you are ready.\n"
+            "- Do NOT ask the user to type the question again if the file already has the problem.\n"
+            "- Start directly with the answer in clean Markdown.\n"
+            "- If text is unclear, make best effort and state uncertainty briefly once.\n"
+        )
         try:
             resp = self.gemini_client.models.generate_content(
                 model=config.GEMINI_MODEL,
-                contents=[genai_types.Part.from_bytes(data=img_bytes, mime_type=mime or "image/jpeg"), prompt],
-                config=genai_types.GenerateContentConfig(temperature=0.4, max_output_tokens=1800),
+                contents=[genai_types.Part.from_bytes(data=img_bytes, mime_type=mime), prompt],
+                config=genai_types.GenerateContentConfig(temperature=0.35, max_output_tokens=2200),
             )
-            return (resp.text or "").strip() or None
+            text = (resp.text or "").strip()
+            if not text:
+                return None
+            # Strip meta "I received" style openers if model still adds them
+            low = text.lower()
+            for bad in (
+                "i have received", "i've received", "image received", "pdf received",
+                "i can see the image", "thanks for sharing", "please type your question",
+            ):
+                if low.startswith(bad):
+                    # drop first paragraph
+                    parts = text.split("\n\n", 1)
+                    text = parts[1].strip() if len(parts) > 1 else text
+                    break
+            return text or None
         except Exception as e:
             logger.error("Vision: %s", e)
             return SOFT_FAIL_MSG
@@ -1520,6 +1574,8 @@ FRONTEND_HTML = r"""
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
 
 <meta charset="UTF-8">
+<link rel="icon" type="image/svg+xml" href="/bot-icon.svg">
+<link rel="apple-touch-icon" href="/bot-icon.svg">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StudyGenie by Sparsh Singhal</title>
@@ -1629,7 +1685,7 @@ footer.brand-footer strong{color:var(--accent)}
 <body>
 <header>
   <div class="logo-wrap" id="logoClick" title="StudyGenie">
-    <img src="/sparsh.jpg" alt="Sparsh Singhal" onerror="this.style.display='none'">
+    <img src="/bot-icon.svg" alt="StudyGenie" width="52" height="52" onerror="this.src='/sparsh.jpg'">
     <div>
       <div class="logo">Study<span>Genie</span></div>
       <div class="brand-sub">by Sparsh Singhal</div>
@@ -1955,7 +2011,7 @@ function handleMediaFile(input, kind){
   if((kind === "pdf") && !isProUser){
     showProOnlyModal();
     try{ input.value = ""; }catch(e){}
-    imageBase64 = null;
+    imageBase64 = null; window._mediaKind = null; window._mediaName = null; try{ const mb=document.getElementById("mediaBtn"); if(mb){ mb.textContent="📎 Media ▾"; mb.title=""; } }catch(e){}
     return;
   }
   const file = input && input.files && input.files[0];
@@ -1997,9 +2053,21 @@ function handleMediaFile(input, kind){
       }
       window._imageMime = file.type || (kind === "pdf" ? "application/pdf" : "image/jpeg");
       window._mediaKind = kind;
-      const icon = kind === "pdf" ? "📄 PDF" : "📷 Image";
-      addMessage("user", icon + " ready: " + (file.name || "file") + " — ab question likho (optional) aur **Fire** dabao");
+      window._mediaName = file.name || (kind === "pdf" ? "file.pdf" : "image");
+      const btn = document.getElementById("mediaBtn");
+      if(btn){
+        btn.textContent = (kind === "pdf" ? "📄 " : "🖼️ ") + "Attached ▾";
+        btn.title = window._mediaName + " — Fire dabao for answer";
+      }
       try{ soundRecv(); }catch(e){}
+      // Auto-run selected tool on the file (no status chat spam)
+      try{
+        const sel = document.getElementById("toolSelect");
+        if(sel && sel.value) currentTool = sel.value;
+        const qel = document.getElementById("question");
+        // if user already typed something keep it; else empty is OK — model uses tool
+        ask();
+      }catch(e){}
     }catch(err){
       addMessage("bot", "Could not read file.");
     }
@@ -2546,6 +2614,37 @@ async function startPay(){
 app = Flask(__name__)
 
 
+@app.route("/bot-icon.svg")
+def bot_icon():
+    """StudyGenie avatar — name-matching bot icon (not the developer photo)."""
+    svg = """<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="55%" stop-color="#a78bfa"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+    <linearGradient id="face" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fef3c7"/>
+      <stop offset="100%" stop-color="#fde68a"/>
+    </linearGradient>
+  </defs>
+  <circle cx="64" cy="64" r="62" fill="#0f172a" stroke="url(#g)" stroke-width="4"/>
+  <ellipse cx="64" cy="72" rx="28" ry="30" fill="url(#face)"/>
+  <path d="M36 58 Q64 28 92 58 Q84 48 64 46 Q44 48 36 58Z" fill="url(#g)"/>
+  <circle cx="52" cy="70" r="4" fill="#0f172a"/>
+  <circle cx="76" cy="70" r="4" fill="#0f172a"/>
+  <path d="M54 84 Q64 92 74 84" fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round"/>
+  <path d="M88 40 Q102 32 108 18" fill="none" stroke="#22d3ee" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
+  <circle cx="110" cy="14" r="5" fill="#a78bfa"/>
+  <text x="64" y="118" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#22d3ee">SG</text>
+</svg>
+"""
+    from flask import Response
+    return Response(svg, mimetype="image/svg+xml")
+
+
 @app.route("/sparsh.jpg")
 def serve_photo():
     try:
@@ -2654,7 +2753,7 @@ def health():
             "gemini_flash_lite": ai.gemini_client is not None,
             "openrouter": ai.openrouter_ready,
         },
-        "version": "StudyGenie v6.7 (Responsive + larger creator photo + Media)",
+        "version": "StudyGenie v6.9 (Media → direct tool answers)",
         "creator": "Sparsh Singhal",
     })
 
@@ -2736,9 +2835,8 @@ def web_ask():
         try:
             img_bytes = base64.b64decode(image_b64)
             mime = data.get("image_mime") or data.get("media_mime") or "image/jpeg"
-            tool_for_media = "ocr" if media_kind != "pdf" else "ocr"
-            if media_kind == "pdf":
-                tool_for_media = tool if tool not in ("general",) else "notes"
+            # Always honour the tool the user selected in the dropdown
+            tool_for_media = tool or "general"
             answer = run_ai(ai.answer_with_image, img_bytes, mime, q, tool_for_media, is_pro)
         except Exception as e:
             logger.error("Media: %s", e)
