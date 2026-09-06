@@ -507,7 +507,11 @@ class Database:
                 level = (xp // 100) + 1
                 self.redis.hset(key, "level", str(level))
                 try:
-                    self.redis.zadd("leaderboard", {uid: xp})
+                    u = self.get_user(uid)
+                    if self.is_test_user(uid, u):
+                        self.redis.zrem("leaderboard", uid)
+                    else:
+                        self.redis.zadd("leaderboard", {uid: xp})
                 except Exception:
                     pass
                 return xp, level
@@ -620,31 +624,92 @@ class Database:
         except Exception:
             return True, {"daily_left": config.FREE_DAILY, "lifetime_left": config.FREE_LIFETIME}
 
+    # Names that must never appear on the public leaderboard (dev/test pollution).
+    _LB_HIDDEN_NAMES = {
+        "pro tester", "dev · sparsh", "dev sparsh", "pro student",
+        "web student", "test student sparsh", "🧪 test account (hidden)",
+        "test account (hidden)",
+    }
+
+    def is_test_user(self, uid: str | int, user: Optional[Dict[str, str]] = None) -> bool:
+        """True for dev/test accounts — excluded from ranks + public leaderboard."""
+        uid = str(uid or "")
+        if user is None:
+            user = self.get_user(uid)
+        if user and str(user.get("is_test", "")).lower() in ("1", "true", "yes"):
+            return True
+        return self._is_hidden_leaderboard_user(uid, user)
+
+    def _is_hidden_leaderboard_user(self, uid: str, user: Optional[Dict[str, str]]) -> bool:
+        uid = str(uid or "")
+        if user and str(user.get("is_test", "")).lower() in ("1", "true", "yes"):
+            return True
+        name = ((user or {}).get("full_name") or "").strip().lower()
+        if name in self._LB_HIDDEN_NAMES:
+            return True
+        if name.startswith("pro tester") or name.startswith("dev ·") or name.startswith("dev "):
+            return True
+        if "test account" in name:
+            return True
+        low = uid.lower()
+        if any(x in low for x in ("testpro_", "profull_", "testfree_", "fulltest_", "test_")):
+            return True
+        return False
+
     def get_leaderboard(self, limit: int = 15) -> List[Dict]:
         if not self.redis:
             return []
         try:
-            top = self.redis.zrevrange("leaderboard", 0, limit - 1, withscores=True)
+            # Pull a wider window so after filtering we still fill `limit` rows.
+            top = self.redis.zrevrange("leaderboard", 0, max(limit * 8, 80) - 1, withscores=True)
             out = []
-            for rank, (uid, xp) in enumerate(top, 1):
+            rank = 0
+            for uid, xp in top:
                 u = self.get_user(uid)
+                if self._is_hidden_leaderboard_user(str(uid), u):
+                    continue
+                name = (u or {}).get("full_name", "Student")[:20]
+                if not name or name.strip().lower() in self._LB_HIDDEN_NAMES:
+                    continue
+                rank += 1
                 out.append({
                     "rank": rank,
-                    "name": (u or {}).get("full_name", "Student")[:20],
+                    "name": name,
                     "xp": int(xp),
-                    "level": int((u or {}).get("level", 1)),
+                    "level": int((u or {}).get("level", 1) or 1),
                     "platform": (u or {}).get("platform", "web"),
                 })
+                if rank >= limit:
+                    break
             return out
         except Exception:
             return []
 
     def get_rank(self, uid: str | int) -> Optional[int]:
+        """Public rank among REAL users only (test/dev accounts excluded)."""
         if not self.redis:
             return None
+        uid = str(uid)
         try:
-            r = self.redis.zrevrank("leaderboard", str(uid))
-            return r + 1 if r is not None else None
+            if self.is_test_user(uid):
+                return None  # test accounts have no public rank
+            # Count how many non-test members have strictly higher XP
+            my_xp = self.redis.zscore("leaderboard", uid)
+            if my_xp is None:
+                return None
+            # Scan top slice; for large boards this is still fine at class scale
+            members = self.redis.zrevrange("leaderboard", 0, 500, withscores=True)
+            rank = 0
+            found = False
+            for mid, score in members:
+                if self.is_test_user(str(mid)):
+                    continue
+                if str(mid) == uid:
+                    found = True
+                    rank += 1
+                    break
+                rank += 1
+            return rank if found else None
         except Exception:
             return None
 
@@ -2434,7 +2499,7 @@ def health():
             "gemini_flash_lite": ai.gemini_client is not None,
             "openrouter": ai.openrouter_ready,
         },
-        "version": "StudyGenie v6.3 (Instant Pro unlock + Gemini primary)",
+        "version": "StudyGenie v6.5 (is_test ranks + clean leaderboard)",
         "creator": "Sparsh Singhal",
     })
 
@@ -2677,6 +2742,39 @@ def setup():
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
+
+
+@app.route("/api/dev/purge-test-leaderboard", methods=["POST"])
+def dev_purge_test_leaderboard():
+    """Remove Pro Tester / Dev test rows from the public leaderboard (Redis zset)."""
+    if not config.DEV_SECRET:
+        return jsonify({"ok": False, "error": "dev mode disabled"}), 403
+    data = request.get_json(silent=True) or {}
+    if not hmac.compare_digest((data.get("code") or ""), config.DEV_SECRET):
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    if not db.redis:
+        return jsonify({"ok": False, "error": "no redis"}), 500
+    removed = []
+    try:
+        members = db.redis.zrange("leaderboard", 0, -1)
+        for uid in members:
+            u = db.get_user(uid)
+            if db.is_test_user(str(uid), u) or db._is_hidden_leaderboard_user(str(uid), u):
+                db.redis.zrem("leaderboard", uid)
+                # stamp so they never re-enter via add_xp
+                try:
+                    if u is not None:
+                        u["is_test"] = "1"
+                        db.save_user(uid, u)
+                except Exception:
+                    pass
+                removed.append(str(uid))
+        return jsonify({"ok": True, "removed": len(removed), "uids": removed[:50]})
+    except Exception as e:
+        logger.error("purge-test-leaderboard: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/dev/activate-pro", methods=["POST"])
 def dev_activate_pro():
     if not config.DEV_SECRET:
@@ -2687,9 +2785,22 @@ def dev_activate_pro():
     uid = (data.get("uid") or "").strip()
     if not uid:
         return jsonify({"ok": False, "error": "uid required"}), 400
-    db.ensure_user(uid, full_name="Pro Tester", platform="web")
+    # Mark as test account — never enters public leaderboard / rank.
+    db.ensure_user(uid, full_name="🧪 Test Account (hidden)", platform="web")
+    udata = db.get_user(uid) or {}
+    udata["full_name"] = "🧪 Test Account (hidden)"
+    udata["is_test"] = "1"
+    db.save_user(uid, udata)
     ok = db.activate_pro(uid, days=30)
-    return jsonify({"ok": bool(ok), "uid": uid, "plan": "pro", "days": 30})
+    try:
+        if db.redis:
+            db.redis.zrem("leaderboard", str(uid))
+    except Exception:
+        pass
+    return jsonify({
+        "ok": bool(ok), "uid": uid, "plan": "pro", "days": 30,
+        "name": "🧪 Test Account (hidden)", "is_test": True,
+    })
 
 
 if __name__ == "__main__":
