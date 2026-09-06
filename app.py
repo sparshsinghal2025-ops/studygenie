@@ -210,6 +210,55 @@ def create_razorpay_order(uid: str, amount_inr: int) -> dict:
         return {"error": str(e)}
 
 
+def verify_and_activate_razorpay_payment(payment_id: str, order_id: str = "", uid_hint: str = "") -> dict:
+    """Verify payment with Razorpay API and activate Pro immediately (no webhook wait)."""
+    if not config.RAZORPAY_KEY_ID or not config.RAZORPAY_KEY_SECRET:
+        return {"ok": False, "error": "Razorpay not configured"}
+    payment_id = (payment_id or "").strip()
+    if not payment_id:
+        return {"ok": False, "error": "payment_id required"}
+    try:
+        auth = base64.b64encode(
+            f"{config.RAZORPAY_KEY_ID}:{config.RAZORPAY_KEY_SECRET}".encode()
+        ).decode()
+        r = requests.get(
+            f"https://api.razorpay.com/v1/payments/{payment_id}",
+            headers={"Authorization": f"Basic {auth}"},
+            timeout=20,
+        )
+        data = r.json()
+        if r.status_code >= 400:
+            logger.error("Razorpay payment fetch: %s", data)
+            return {"ok": False, "error": data.get("error", {}).get("description", "Payment verify failed")}
+        status = (data.get("status") or "").lower()
+        if status not in ("captured", "authorized"):
+            return {"ok": False, "error": f"Payment not completed ({status})"}
+        amount = int(data.get("amount") or 0)
+        expected = int(config.PRO_PRICE_INR) * 100
+        if amount < expected:
+            return {"ok": False, "error": "Amount mismatch"}
+        notes = data.get("notes") or {}
+        uid = (notes.get("user_id") or uid_hint or "").strip()
+        if order_id and data.get("order_id") and str(data.get("order_id")) != str(order_id):
+            return {"ok": False, "error": "Order mismatch"}
+        if not uid:
+            return {"ok": False, "error": "user_id missing on payment"}
+        if payment_id and not db.mark_payment_processed(payment_id):
+            return {"ok": True, "uid": uid, "plan": "pro", "duplicate": True, "message": "Already activated"}
+        db.ensure_user(uid, full_name="Pro Student", platform="web")
+        db.activate_pro(uid, days=30)
+        try:
+            db.add_badge(uid, "Pro Warrior 👑")
+        except Exception:
+            pass
+        logger.info("Pro activated instantly for %s via payment %s", uid, payment_id)
+        return {"ok": True, "uid": uid, "plan": "pro", "message": "Pro unlocked"}
+    except Exception as e:
+        logger.error("verify_and_activate: %s", e)
+        return {"ok": False, "error": str(e)}
+
+
+
 # ============================================================================
 # DATABASE
 # ============================================================================
@@ -2150,6 +2199,31 @@ async function loadLB(){
     ).join("");
   }catch{}
 }
+
+// Instant Pro UX after payment redirect
+(function(){
+  try{
+    const params=new URLSearchParams(location.search);
+    if(params.get("pro")==="1" || params.get("paid")==="1" || localStorage.getItem("sg_pro_just_unlocked")==="1"){
+      localStorage.removeItem("sg_pro_just_unlocked");
+      isProUser = true;
+      const qd=document.getElementById("quota-display");
+      if(qd) qd.textContent = "PRO ∞";
+      if(params.get("pro") || params.get("paid")){
+        history.replaceState({}, "", "/");
+      }
+      setTimeout(function(){
+        try{
+          if(typeof addMessage==="function"){
+            addMessage("bot", "🎉 **Pro unlocked!** Unlimited questions + Roast + Mindmap + OCR + 2× XP ab active hain. Fire away!");
+          }
+        }catch(e){}
+      }, 400);
+      if(typeof syncProfile==="function") syncProfile();
+    }
+  }catch(e){}
+})();
+
 loadLB();
 setInterval(loadLB, 30000);
 </script>
@@ -2208,7 +2282,32 @@ async function startPay(){
     const rzp=new Razorpay({
       key:KEY_ID,amount:data.amount,currency:"INR",name:"StudyGenie Pro",
       description:"30 days Pro",order_id:data.id,notes:{user_id:UID},
-      handler:function(){status.textContent="✅ Payment successful! Pro activates shortly."},
+      handler:async function(response){
+        status.textContent="✅ Payment received. Unlocking Pro...";
+        try{
+          const vr=await fetch("/api/verify-payment",{
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({
+              payment_id: response.razorpay_payment_id,
+              order_id: response.razorpay_order_id || data.id,
+              uid: UID
+            })
+          });
+          const vd=await vr.json();
+          if(vd.ok){
+            status.textContent="🎉 Pro unlocked! Redirecting...";
+            try{ localStorage.setItem("sg_pro_just_unlocked","1"); }catch(e){}
+            setTimeout(function(){ window.location.href="/?pro=1&paid=1"; }, 600);
+          }else{
+            status.textContent="Payment OK but unlock delayed: "+(vd.error||"refresh home in a few seconds");
+            btn.disabled=false;
+          }
+        }catch(err){
+          status.textContent="Payment OK. Open Home — Pro will sync shortly.";
+          setTimeout(function(){ window.location.href="/?pro=1"; }, 1200);
+        }
+      },
       theme:{color:"#22d3ee"},
       modal:{ondismiss:function(){btn.disabled=false;status.textContent="Payment cancelled."}}
     });
@@ -2250,6 +2349,21 @@ def pay_page():
     return render_template_string(
         PAY_HTML, uid=uid, price=config.PRO_PRICE_INR, key_id=config.RAZORPAY_KEY_ID
     )
+
+
+
+
+@app.route("/api/verify-payment", methods=["POST"])
+def api_verify_payment():
+    """Called from Pay page immediately after Razorpay success — unlocks Pro without webhook delay."""
+    data = request.get_json(silent=True) or {}
+    payment_id = (data.get("payment_id") or data.get("razorpay_payment_id") or "").strip()
+    order_id = (data.get("order_id") or data.get("razorpay_order_id") or "").strip()
+    uid = (data.get("uid") or "").strip()
+    result = verify_and_activate_razorpay_payment(payment_id, order_id=order_id, uid_hint=uid)
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
 
 
 @app.route("/api/create-order", methods=["POST"])
@@ -2320,7 +2434,7 @@ def health():
             "gemini_flash_lite": ai.gemini_client is not None,
             "openrouter": ai.openrouter_ready,
         },
-        "version": "StudyGenie v6.2 (Gemini primary + OpenRouter + soft-fail)",
+        "version": "StudyGenie v6.3 (Instant Pro unlock + Gemini primary)",
         "creator": "Sparsh Singhal",
     })
 
