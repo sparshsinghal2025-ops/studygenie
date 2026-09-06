@@ -808,7 +808,7 @@ class AIService:
         base = (
             "You are StudyGenie by Sparsh Singhal – India's fun gamified AI tutor for Class 6-12, "
             "JEE, NEET, GATE, UPSC, SSC, Banking, CA, CUET, Olympiads. Reply in natural Hinglish. "
-            "Be clear, exam-oriented, encouraging, use emojis. "
+            "Be clear, exam-oriented, encouraging, use emojis. Keep answers concise (prefer under ~250 words unless user asks for detail). "
             "Use clean Markdown: headings, bold, bullet lists, and simple tables when helpful. ""For math use LaTeX in \\( ... \\) or $$ ... $$. Also add one plain-English line under hard formulas.\n\n"
         )
         if is_pro:
@@ -982,9 +982,13 @@ class AIService:
             return None
         try:
             resp = self.gemini_client.models.generate_content(
-                model=model or config.GEMINI_MODEL,
+                model=model or config.GEMINI_FLASH_LITE_MODEL or config.GEMINI_MODEL,
                 contents=prompt,
-                config=genai_types.GenerateContentConfig(temperature=0.7, max_output_tokens=max_tokens),
+                config=genai_types.GenerateContentConfig(
+                    temperature=0.5,
+                    max_output_tokens=max_tokens,
+                    # Prefer shorter, faster completions
+                ),
             )
             text = (resp.text or "").strip()
             return text or None
@@ -997,7 +1001,7 @@ class AIService:
 
     def _call_openai_compatible(self, base_url: str, api_key: str, model: str, prompt: str,
                                  max_tokens: int, extra_headers: Optional[Dict[str, str]] = None,
-                                 timeout: int = 30) -> Optional[str]:
+                                 timeout: int = 20) -> Optional[str]:
         """Shared helper for any OpenAI-compatible chat/completions endpoint
         just for two providers when `requests` already does the job."""
         try:
@@ -1033,7 +1037,7 @@ class AIService:
         }
         # Rotate through the free-model list so one saturated/rate-limited
         # model doesn't take the whole fallback chain down with it.
-        for model in config.OPENROUTER_MODELS:
+        for model in config.OPENROUTER_MODELS[:2]:  # only first 2 free models — faster fail
             text = self._call_openai_compatible(
                 "https://openrouter.ai/api/v1", config.OPENROUTER_API_KEY, model,
                 prompt, max_tokens, extra_headers=headers,
@@ -1048,7 +1052,15 @@ class AIService:
         base = self._base_prompt(is_pro)
         templates = self._templates(base, question.strip(), is_pro=is_pro)
         prompt = templates.get(tool, templates["general"])
-        max_tokens = 2800 if (is_pro and tool == "pyq") else (2000 if is_pro else (1800 if tool == "pyq" else 1400))
+        # Keep answers useful but shorter → much lower latency on free Gemini
+        if is_pro and tool in ("pyq", "mock", "notes"):
+            max_tokens = 1200
+        elif is_pro:
+            max_tokens = 1000
+        elif tool in ("pyq", "planner", "notes"):
+            max_tokens = 900
+        else:
+            max_tokens = 700
         # Primary Gemini Flash-Lite -> secondary OpenRouter (free). Optional Groq if AI_PRIMARY=groq. Each is skipped instantly if its key
         # isn't configured, so this degrades gracefully to whatever subset
         # of providers you've actually set up.
@@ -1063,14 +1075,12 @@ class AIService:
             providers = [("groq", self._call_groq)] + providers
         # Retry the whole chain once more if every provider fails on the
         # first pass (handles transient blips without giving up too soon).
-        for attempt in range(2):
-            for name, fn in providers:
-                text = fn(prompt, max_tokens=max_tokens)
-                if text:
-                    logger.info("Answer served by provider: %s (attempt %s)", name, attempt + 1)
-                    return text
-            if attempt == 0:
-                time.sleep(1.2)
+        # One fast pass only (no 1.2s sleep between retries — that added lag).
+        for name, fn in providers:
+            text = fn(prompt, max_tokens=max_tokens)
+            if text:
+                logger.info("Answer served by provider: %s", name)
+                return text
         return SOFT_FAIL_MSG
 
 
@@ -1121,9 +1131,9 @@ class AIService:
         )
         try:
             resp = self.gemini_client.models.generate_content(
-                model=config.GEMINI_MODEL,
+                model=config.GEMINI_FLASH_LITE_MODEL or config.GEMINI_MODEL,
                 contents=[genai_types.Part.from_bytes(data=img_bytes, mime_type=mime), prompt],
-                config=genai_types.GenerateContentConfig(temperature=0.35, max_output_tokens=2200),
+                config=genai_types.GenerateContentConfig(temperature=0.35, max_output_tokens=1000),
             )
             text = (resp.text or "").strip()
             if not text:
@@ -2753,7 +2763,7 @@ def health():
             "gemini_flash_lite": ai.gemini_client is not None,
             "openrouter": ai.openrouter_ready,
         },
-        "version": "StudyGenie v6.9 (Media → direct tool answers)",
+        "version": "StudyGenie v6.10 (Faster answers: shorter tokens + flash-lite)",
         "creator": "Sparsh Singhal",
     })
 
