@@ -1520,6 +1520,7 @@ FRONTEND_HTML = r"""
 <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
 
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StudyGenie by Sparsh Singhal</title>
 <meta name="description" content="StudyGenie — India's gamified AI tutor, built by Sparsh Singhal.">
@@ -1529,13 +1530,45 @@ FRONTEND_HTML = r"""
 body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column}
 header{background:linear-gradient(90deg,#0f172a,#1e1b4b);padding:.85rem 1.25rem;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:50}
 .logo-wrap{display:flex;align-items:center;gap:.65rem;cursor:pointer;user-select:none}
-.logo-wrap img{width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)}
+.logo-wrap img{width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid var(--accent);box-shadow:0 0 0 3px rgba(34,211,238,.25)}
 .logo{font-size:1.25rem;font-weight:700}.logo span{color:var(--accent)}
 .brand-sub{font-size:.7rem;color:var(--muted);margin-top:1px}
 .stats{font-size:.82rem;color:var(--muted);display:flex;gap:1rem;align-items:center;flex-wrap:wrap}
 .pro-btn-top{background:linear-gradient(90deg,#a78bfa,#ec4899);color:#fff;border:none;border-radius:999px;padding:.35rem .85rem;font-size:.78rem;font-weight:700;cursor:pointer}
 main{flex:1;display:grid;grid-template-columns:280px 1fr;max-width:1400px;margin:0 auto;width:100%}
-@media(max-width:900px){main{grid-template-columns:1fr}.sidebar{display:none}}
+@media(max-width:900px){
+  main{grid-template-columns:1fr;max-width:100%}
+  header{padding:.65rem .85rem}
+  .logo-wrap img{width:48px;height:48px}
+  .logo{font-size:1.05rem}
+  .brand-sub{display:none}
+  .stats{font-size:.72rem;gap:.45rem}
+  .sidebar{
+    display:block;border-right:none;border-bottom:1px solid var(--border);
+    padding:.65rem .75rem;max-height:none;overflow:visible;
+  }
+  .creator-card{margin-bottom:.5rem}
+  .creator-card img{width:64px;height:64px}
+  .sidebar h3{margin:.4rem 0 .35rem}
+  /* tools as horizontal chips */
+  .sidebar .tool-btn{display:inline-block;width:auto;margin:0 .3rem .35rem 0;padding:.4rem .65rem;font-size:.8rem}
+  .sidebar .tool-btn{white-space:nowrap}
+  #toolList, .tool-list, .sidebar-tools{display:flex;flex-wrap:wrap;gap:.25rem}
+  .pay-side,.refer-side{font-size:.8rem;padding:.55rem}
+  .lb-item{font-size:.8rem}
+  .chat-area{height:auto;min-height:55vh}
+  .messages{padding:.85rem;padding-bottom:1rem}
+  .msg{max-width:94%;padding:.75rem .9rem;font-size:.95rem}
+  .input-bar,.composer{padding:.5rem !important}
+  .input-row textarea{font-size:16px !important} /* prevents iOS zoom */
+  .send{padding:.65rem 1rem;min-height:44px}
+  .modal{width:92%;margin:1rem}
+}
+@media(max-width:600px){
+  .stats span.hide-xs,.stats .hide-xs{display:none}
+  .logo-wrap img{width:46px;height:46px}
+  .creator-card img{width:60px;height:60px}
+}
 .sidebar{background:var(--card);border-right:1px solid var(--border);padding:1.25rem 1rem;overflow-y:auto}
 .sidebar h3{font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:1rem 0 .6rem}
 .tool-btn{display:block;width:100%;text-align:left;background:transparent;border:1px solid transparent;color:var(--text);padding:.55rem .8rem;border-radius:8px;margin-bottom:.25rem;cursor:pointer;font-size:.92rem}
@@ -1543,7 +1576,7 @@ main{flex:1;display:grid;grid-template-columns:280px 1fr;max-width:1400px;margin
 .pro-badge{background:linear-gradient(90deg,#a78bfa,#ec4899);color:#fff;font-size:.65rem;padding:.12rem .4rem;border-radius:999px;margin-left:.35rem}
 .pay-side{display:block;width:100%;margin:1rem 0 .5rem;background:linear-gradient(90deg,#a78bfa,#ec4899);color:#fff;border:none;border-radius:10px;padding:.7rem;font-weight:700;cursor:pointer;font-size:.9rem}
 .creator-card{display:flex;gap:.7rem;align-items:center;padding:.75rem;background:#0f172a;border-radius:12px;border:1px solid var(--border);margin-bottom:1rem}
-.creator-card img{width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid var(--accent)}
+.creator-card img{width:84px;height:84px;border-radius:50%;object-fit:cover;border:3px solid var(--accent);box-shadow:0 0 0 4px rgba(34,211,238,.22)}
 .creator-card .name{font-weight:700;font-size:.9rem}
 .creator-card .role{font-size:.72rem;color:var(--muted)}
 .refer-side{display:block;width:100%;margin:.5rem 0;background:#0f172a;border:1px solid var(--accent);color:var(--accent);border-radius:10px;padding:.6rem;font-weight:700;cursor:pointer;font-size:.85rem}
@@ -1576,6 +1609,8 @@ button.send:disabled{opacity:.5}
 .welcome h2{color:var(--text);margin-bottom:.35rem}
 .lb-item{display:flex;justify-content:space-between;padding:.4rem 0;font-size:.88rem;border-bottom:1px solid var(--border)}
 .loading{opacity:.85;font-style:italic}
+#proOnlyModal{display:none;align-items:center;justify-content:center}
+#proOnlyModal.open{display:flex}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:100;padding:1rem}
 .modal-bg.show{display:flex}
 .modal{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:1.5rem;max-width:420px;width:100%;max-height:90vh;overflow-y:auto}
@@ -1647,7 +1682,7 @@ footer.brand-footer strong{color:var(--accent)}
   <section class="chat-area">
     <div class="messages" id="messages">
       <div class="welcome">
-        <img src="/sparsh.jpg" alt="Sparsh Singhal" onerror="this.style.display='none'">
+        <img src="/sparsh.jpg" alt="Sparsh Singhal" onerror="this.style.display='none'" style="width:132px;height:132px;border-radius:50%;object-fit:cover;border:3px solid #22d3ee;box-shadow:0 0 0 6px rgba(34,211,238,.22);margin-bottom:.85rem">
         <h2>Welcome to StudyGenie 🎓</h2>
         <p>Built with ❤️ by <strong>Sparsh Singhal</strong></p>
         <p style="margin-top:.75rem;font-size:.9rem">All exams • Free tools + Pro power</p>
@@ -1678,8 +1713,16 @@ footer.brand-footer strong{color:var(--accent)}
           <option value="diagram">Diagram (Pro)</option>
           <option value="youtube">YouTube Notes (Pro)</option>
         </select>
-        <button onclick="onImageButtonClick()">📷 Image</button>
-        <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="handleImage(this)">
+        <div class="media-dd" style="position:relative;display:inline-block">
+          <button type="button" id="mediaBtn" onclick="toggleMediaMenu(event)">📎 Media ▾</button>
+          <div id="mediaMenu" style="display:none;position:absolute;bottom:110%;left:0;background:#111827;border:1px solid rgba(255,255,255,.12);border-radius:10px;min-width:180px;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+            <button type="button" class="media-item" onclick="pickMedia('image')" style="display:block;width:100%;text-align:left;padding:.65rem .9rem;background:transparent;border:none;color:#e2e8f0;cursor:pointer">🖼️ Images</button>
+            <button type="button" class="media-item" onclick="pickMedia('pdf')" style="display:block;width:100%;text-align:left;padding:.65rem .9rem;background:transparent;border:none;color:#e2e8f0;cursor:pointer">📄 PDFs <span style="color:#a78bfa;font-size:.75rem">PRO</span></button>
+            <button type="button" class="media-item" onclick="pickMedia('youtube')" style="display:block;width:100%;text-align:left;padding:.65rem .9rem;background:transparent;border:none;color:#e2e8f0;cursor:pointer">▶️ YouTube Videos <span style="color:#a78bfa;font-size:.75rem">PRO</span></button>
+          </div>
+        </div>
+        <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="handleMediaFile(this,'image')">
+        <input type="file" id="pdfInput" accept="application/pdf,.pdf" style="display:none" onchange="handleMediaFile(this,'pdf')">
       </div>
       <div class="input-row">
         <textarea id="question" placeholder="Dimaag mein kya ghoom raha hai? Poocho... 🔥" rows="1"></textarea>
@@ -1690,6 +1733,14 @@ footer.brand-footer strong{color:var(--accent)}
 </main>
 <footer class="brand-footer">🎓 StudyGenie — built with ❤️ by <strong>Sparsh Singhal</strong></footer>
 
+
+<div class="modal-bg" id="proOnlyModal" onclick="if(event.target===this)closeProOnlyModal()">
+  <div class="modal" style="max-width:340px;text-align:center">
+    <h2 style="margin-bottom:.5rem">🔒 ONLY FOR PRO USERS</h2>
+    <p style="color:#94a3b8;margin:.5rem 0 1.2rem">PDFs aur YouTube Notes Pro plan me milte hain.<br>Images free users bhi use kar sakte hain.</p>
+    <button type="button" onclick="closeProOnlyModal()" style="background:#22d3ee;color:#0b1220;border:none;border-radius:10px;padding:.7rem 1.4rem;font-weight:700;cursor:pointer;width:100%">OK</button>
+  </div>
+</div>
 <div class="modal-bg" id="proModal">
   <div class="modal">
     <h2>💎 StudyGenie Pro</h2>
@@ -1847,15 +1898,119 @@ function copyReferLink(){
   }
 }
 
-function onImageButtonClick(){
-  if(!isProUser){
-    try{ soundError(); }catch(e){}
-    alert("Only for pro plan users");
+
+let mediaKind = null; // image | pdf | youtube
+function toggleMediaMenu(e){
+  try{ e.stopPropagation(); }catch(ex){}
+  const m = document.getElementById("mediaMenu");
+  if(!m) return;
+  m.style.display = (m.style.display === "none" || !m.style.display) ? "block" : "none";
+}
+document.addEventListener("click", function(){
+  const m = document.getElementById("mediaMenu");
+  if(m) m.style.display = "none";
+});
+function showProOnlyModal(){
+  try{ soundError(); }catch(e){}
+  const el = document.getElementById("proOnlyModal");
+  if(el){ el.classList.add("open"); el.style.display = "flex"; }
+  else alert("ONLY FOR PRO USERS");
+}
+function closeProOnlyModal(){
+  const el = document.getElementById("proOnlyModal");
+  if(el){ el.classList.remove("open"); el.style.display = "none"; }
+}
+function pickMedia(kind){
+  const m = document.getElementById("mediaMenu");
+  if(m) m.style.display = "none";
+  if(kind === "pdf" || kind === "youtube"){
+    if(!isProUser){
+      showProOnlyModal();
+      return;
+    }
+  }
+  mediaKind = kind;
+  if(kind === "image"){
+    const el = document.getElementById("imageInput");
+    if(el){ el.value = ""; el.click(); }
+  } else if(kind === "pdf"){
+    const el = document.getElementById("pdfInput");
+    if(el){ el.value = ""; el.click(); }
+  } else if(kind === "youtube"){
+    currentTool = "youtube";
+    try{
+      const sel = document.getElementById("toolSelect");
+      if(sel) sel.value = "youtube";
+    }catch(e){}
+    const ta = document.getElementById("question");
+    if(ta){
+      ta.placeholder = "YouTube video link + kya notes chahiye? paste URL...";
+      ta.focus();
+    }
+    addMessage("bot", "▶️ **YouTube Notes (Pro)**\\nVideo ka link yahan paste karo aur Fire dabao. Example: `https://youtube.com/watch?v=...` + topic");
+  }
+}
+function handleMediaFile(input, kind){
+  mediaKind = kind || "image";
+  if((kind === "pdf") && !isProUser){
+    showProOnlyModal();
+    try{ input.value = ""; }catch(e){}
+    imageBase64 = null;
     return;
   }
-  const el = document.getElementById("imageInput");
-  if(el) el.click();
+  const file = input && input.files && input.files[0];
+  if(!file){
+    try{ soundError(); }catch(e){}
+    addMessage("bot", "No file selected.");
+    return;
+  }
+  if(kind === "image"){
+    if(!file.type || !file.type.startsWith("image/")){
+      try{ soundError(); }catch(e){}
+      addMessage("bot", "Please choose an image file (JPG/PNG/WebP).");
+      return;
+    }
+  }
+  if(kind === "pdf"){
+    const okPdf = (file.type === "application/pdf") || /\\.pdf$/i.test(file.name || "");
+    if(!okPdf){
+      try{ soundError(); }catch(e){}
+      addMessage("bot", "Please choose a PDF file.");
+      return;
+    }
+  }
+  const maxMb = kind === "pdf" ? 8 : 4.5;
+  if(file.size > maxMb * 1024 * 1024){
+    try{ soundError(); }catch(e){}
+    addMessage("bot", "File too large. Please use under ~" + maxMb + "MB.");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    try{
+      const dataUrl = String(reader.result || "");
+      const parts = dataUrl.split(",");
+      imageBase64 = parts.length > 1 ? parts[1] : "";
+      if(!imageBase64){
+        addMessage("bot", "Could not read file.");
+        return;
+      }
+      window._imageMime = file.type || (kind === "pdf" ? "application/pdf" : "image/jpeg");
+      window._mediaKind = kind;
+      const icon = kind === "pdf" ? "📄 PDF" : "📷 Image";
+      addMessage("user", icon + " ready: " + (file.name || "file") + " — ab question likho (optional) aur **Fire** dabao");
+      try{ soundRecv(); }catch(e){}
+    }catch(err){
+      addMessage("bot", "Could not read file.");
+    }
+  };
+  reader.onerror = () => addMessage("bot", "Could not read file.");
+  reader.readAsDataURL(file);
 }
+function onImageButtonClick(){ pickMedia("image"); }
+function handleImage(input){ handleMediaFile(input, "image"); }
+
+
 function handleImage(input){
   // Free users: block immediately with popup
   if(!isProUser){
@@ -2220,7 +2375,7 @@ async function ask(){
     const res = await fetch("/api/webask", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ question: q, tool: currentTool, client_id: clientId, image_base64: imageBase64 || undefined, image_mime: window._imageMime || "image/jpeg" })
+      body: JSON.stringify({ question: q, tool: currentTool, client_id: clientId, image_base64: imageBase64 || undefined, image_mime: window._imageMime || "image/jpeg", media_kind: window._mediaKind || mediaKind || undefined })
     });
     const data = await res.json();
     loading.remove();
@@ -2499,7 +2654,7 @@ def health():
             "gemini_flash_lite": ai.gemini_client is not None,
             "openrouter": ai.openrouter_ready,
         },
-        "version": "StudyGenie v6.5 (is_test ranks + clean leaderboard)",
+        "version": "StudyGenie v6.7 (Responsive + larger creator photo + Media)",
         "creator": "Sparsh Singhal",
     })
 
@@ -2564,7 +2719,11 @@ def web_ask():
     udata = db.ensure_user(uid, full_name="Web Student", platform="web")
     db.track_activity(uid)
     is_pro = db.is_pro(uid)
-    if (tool in PRO_ONLY_TOOLS or image_b64) and not is_pro:
+    media_kind = (data.get("media_kind") or ("image" if image_b64 else "")).strip().lower()
+    # Images: allowed for free users. PDF / YouTube media: Pro-only.
+    if tool in PRO_ONLY_TOOLS and not is_pro:
+        return jsonify({"answer": f"🔒 Pro-only.\n\nUpgrade ₹{config.PRO_PRICE_INR}/30 days.\n\n- made with love by Sparsh Singhal"})
+    if image_b64 and media_kind in ("pdf", "youtube") and not is_pro:
         return jsonify({"answer": f"🔒 Pro-only.\n\nUpgrade ₹{config.PRO_PRICE_INR}/30 days.\n\n- made with love by Sparsh Singhal"})
     if not is_pro:
         can, quota = db.try_consume_quota(uid)
@@ -2576,10 +2735,14 @@ def web_ask():
     if image_b64:
         try:
             img_bytes = base64.b64decode(image_b64)
-            answer = run_ai(ai.answer_with_image, img_bytes, data.get("image_mime", "image/jpeg"), q, "ocr", is_pro)
+            mime = data.get("image_mime") or data.get("media_mime") or "image/jpeg"
+            tool_for_media = "ocr" if media_kind != "pdf" else "ocr"
+            if media_kind == "pdf":
+                tool_for_media = tool if tool not in ("general",) else "notes"
+            answer = run_ai(ai.answer_with_image, img_bytes, mime, q, tool_for_media, is_pro)
         except Exception as e:
-            logger.error("Image: %s", e)
-            answer = "Could not read the image."
+            logger.error("Media: %s", e)
+            answer = "Could not read the file. Try a clearer image or smaller PDF."
     else:
         ckey = make_cache_key(tool, q, is_pro)
         answer = db.cache_get(ckey)
