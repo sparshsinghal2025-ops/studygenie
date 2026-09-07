@@ -1204,8 +1204,7 @@ def main_menu(is_pro: bool = False) -> InlineKeyboardMarkup:
          InlineKeyboardButton("🛠 Tools", callback_data="menu_tools")],
         [InlineKeyboardButton("📊 Progress", callback_data="menu_progress"),
          InlineKeyboardButton("🏆 Leaderboard", callback_data="menu_lb")],
-        [InlineKeyboardButton("🔥 Streak", callback_data="menu_streak"),
-         InlineKeyboardButton("🎁 Refer & Earn", callback_data="menu_refer")],
+        [InlineKeyboardButton("🔥 Streak", callback_data="menu_streak")],
     ]
     if is_pro:
         rows.append([InlineKeyboardButton("👑 You are PRO", callback_data="menu_prostatus")])
@@ -1384,23 +1383,6 @@ async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await reply(update, "\n".join(lines))
 
 
-async def refer_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user = update.effective_user
-    if not user:
-        return
-    udata = db.ensure_user(user.id, user.username or "", user.full_name or "Student")
-    code = udata.get("referral_code", "")
-    db.register_referral_code(user.id, code)
-    bot_username = context.bot.username if context.bot else "StudyGenieBot"
-    link = f"https://t.me/{bot_username}?start=ref_{code}"
-    count = udata.get("referral_count", "0")
-    await reply(update,
-                f"🎁 *Refer & Earn – StudyGenie by Sparsh Singhal*\n\n"
-                f"Apna link doston ko bhejo:\n{link}\n\n"
-                f"✅ Har referral pe +50 XP\n✅ Har 5 referral pe 3 din FREE Pro\n\n"
-                f"👥 Total referrals: {count}")
-
-
 async def upgrade(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     uid = user.id if user else 0
@@ -1437,8 +1419,6 @@ async def callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await leaderboard(update, context)
     elif data == "menu_streak":
         await streak_cmd(update, context)
-    elif data == "menu_refer":
-        await refer_cmd(update, context)
     elif data == "menu_upgrade":
         await upgrade(update, context)
     elif data == "menu_about":
@@ -1518,7 +1498,6 @@ async def get_app() -> Application:
         app_.add_handler(CommandHandler("progress", progress))
         app_.add_handler(CommandHandler("streak", streak_cmd))
         app_.add_handler(CommandHandler("leaderboard", leaderboard))
-        app_.add_handler(CommandHandler("refer", refer_cmd))
         app_.add_handler(CommandHandler("upgrade", upgrade))
         app_.add_handler(CommandHandler("about", about_sparsh))
         app_.add_handler(CallbackQueryHandler(callback))
@@ -1620,7 +1599,7 @@ main{flex:1;display:grid;grid-template-columns:280px 1fr;max-width:1400px;margin
   .sidebar .tool-btn{display:inline-block;width:auto;margin:0 .3rem .35rem 0;padding:.4rem .65rem;font-size:.8rem}
   .sidebar .tool-btn{white-space:nowrap}
   #toolList, .tool-list, .sidebar-tools{display:flex;flex-wrap:wrap;gap:.25rem}
-  .pay-side,.refer-side{font-size:.8rem;padding:.55rem}
+  .pay-side{font-size:.8rem;padding:.55rem}
   .lb-item{font-size:.8rem}
   .chat-area{height:auto;min-height:55vh}
   .messages{padding:.85rem;padding-bottom:1rem}
@@ -1645,7 +1624,6 @@ main{flex:1;display:grid;grid-template-columns:280px 1fr;max-width:1400px;margin
 .creator-card img{width:84px;height:84px;border-radius:50%;object-fit:cover;border:3px solid var(--accent);box-shadow:0 0 0 4px rgba(34,211,238,.22)}
 .creator-card .name{font-weight:700;font-size:.9rem}
 .creator-card .role{font-size:.72rem;color:var(--muted)}
-.refer-side{display:block;width:100%;margin:.5rem 0;background:#0f172a;border:1px solid var(--accent);color:var(--accent);border-radius:10px;padding:.6rem;font-weight:700;cursor:pointer;font-size:.85rem}
 .chat-area{display:flex;flex-direction:column;height:calc(100vh - 64px)}
 .messages{flex:1;overflow-y:auto;padding:1.25rem;display:flex;flex-direction:column;gap:1rem}
 .msg{max-width:88%;padding:.95rem 1.1rem;border-radius:16px;line-height:1.6;word-break:break-word}
@@ -1741,7 +1719,6 @@ footer.brand-footer strong{color:var(--accent)}
     <button class="tool-btn" data-tool="diagram">🧬 Diagram Explain <span class="pro-badge">PRO</span></button>
     <button class="tool-btn" data-tool="youtube">📺 YouTube Notes <span class="pro-badge">PRO</span></button>
     <button class="pay-side" onclick="openProModal()">🔫 Ammo khatam ho gaye kya ?? Please upgrade to PRO – ₹{{ price }} for 30 days</button>
-    <button class="refer-side" onclick="openReferModal()">🎁 Refer & Earn Free Pro</button>
     <h3>🏆 Live Leaderboard</h3>
     <div id="lb-list">Loading...</div>
   </aside>
@@ -1826,23 +1803,6 @@ footer.brand-footer strong{color:var(--accent)}
   </div>
 </div>
 
-<div class="modal-bg" id="referModal">
-  <div class="modal">
-    <h2>🎁 Refer & Earn — by Sparsh Singhal</h2>
-    <p style="color:var(--muted);font-size:.9rem;margin-top:.4rem">Apna referral link doston ko bhejo:</p>
-    <input id="referLinkBox" class="name-input" type="text" readonly />
-    <ul style="margin-top:.75rem">
-      <li>Har referral pe +50 XP</li>
-      <li>Har 5 referral pe 3 din FREE Pro</li>
-    </ul>
-    <div class="actions">
-      <button class="btn-pro" onclick="copyReferLink()">Copy Link</button>
-      <button class="btn-close" onclick="closeReferModal()">Close</button>
-    </div>
-    <p id="referMsg" style="margin-top:.6rem;font-size:.85rem;color:var(--muted)"></p>
-  </div>
-</div>
-
 <div class="modal-bg" id="devModal">
   <div class="modal">
     <h2>🔐 Developer Mode</h2>
@@ -1872,8 +1832,6 @@ footer.brand-footer strong{color:var(--accent)}
 <script>
 const PRICE = {{ price }};
 let currentTool = "general";
-let referCode = "";
-
 // --- Pro upgrade modal — these were referenced by onclick= handlers above
 // but never implemented, so the main monetization button did nothing at all.
 function openProModal(){
@@ -1932,38 +1890,6 @@ async function checkDev(){
     if(msg){ msg.style.color = "#f87171"; msg.textContent = "Network error"; }
   }
 }
-
-function openReferModal(){
-  const m = document.getElementById("referModal");
-  if(!m) return;
-  m.classList.add("show");
-  fetch("/api/me?client_id=" + encodeURIComponent(clientId)).then(r=>r.json()).then(data=>{
-    if(data.ok && data.referral_code){
-      referCode = data.referral_code;
-      const box = document.getElementById("referLinkBox");
-      if(box) box.value = window.location.origin + "/?ref=" + referCode;
-    }
-  });
-  try{ soundClick(); }catch(e){}
-}
-function closeReferModal(){
-  const m = document.getElementById("referModal");
-  if(m) m.classList.remove("show");
-}
-function copyReferLink(){
-  const box = document.getElementById("referLinkBox");
-  const msg = document.getElementById("referMsg");
-  if(!box || !box.value) return;
-  box.select();
-  try{
-    navigator.clipboard.writeText(box.value);
-    if(msg){ msg.style.color="#22d3ee"; msg.textContent = "Copied! Share karo doston ke saath."; }
-    soundRecv();
-  }catch(e){
-    if(msg) msg.textContent = "Copy manually.";
-  }
-}
-
 
 let mediaKind = null; // image | pdf | youtube
 function toggleMediaMenu(e){
