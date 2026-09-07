@@ -807,7 +807,7 @@ class AIService:
     def _base_prompt(self, is_pro: bool) -> str:
         base = (
             "You are StudyGenie by Sparsh Singhal – India's fun gamified AI tutor for Class 6-12, "
-            "JEE, NEET, GATE, UPSC, SSC, Banking, CA, CUET, Olympiads. Reply in natural Hinglish. "
+            "JEE, NEET, GATE, UPSC, SSC, Banking, CA, CUET, Olympiads, School Exams, College Exams, and many more. Reply in natural Hinglish. "
             "Be clear, exam-oriented, encouraging, use emojis. Keep answers concise (prefer under ~250 words unless user asks for detail). "
             "Use clean Markdown: headings, bold, bullet lists, and simple tables when helpful. ""For math use LaTeX in \\( ... \\) or $$ ... $$. Also add one plain-English line under hard formulas.\n\n"
         )
@@ -849,7 +849,7 @@ class AIService:
                 "User message may be (1) a full past question to solve, or (2) a topic with optional filters.\n"
                 "If full question: solve step-by-step with tips and common mistakes.\n"
                 f"If topic: generate exactly {n_pyq} exam-style questions STRICTLY on that topic.\n"
-                "TOPIC FILTER: stay on topic; match exam style if named (JEE/NEET/GATE/SSC/DTU).\n"
+                "TOPIC FILTER: stay on topic; match exam style if named (JEE/NEET/GATE/SSC/DTU and many more).\n"
                 "PREVIOUS YEAR TRENDS: 4-6 bullets before questions (frequent ideas, weightage feel). Never invent paper codes.\n"
                 "Mix: objective only / subjective only / default BOTH (half-half).\n"
                 "Format: Trends → Numbered questions → Answer key.\n\n"
@@ -901,7 +901,7 @@ class AIService:
             ),
             "important": (
                 f"{base}"
-                "Tool=IMPORTANT Qs. 10-12 high-yield questions with short answers.\n\n"
+                "Tool=IMPORTANT Qs. 15 high-yield questions with short answers.\n\n"
                 f"Topic:\n{question}"
             ),
             "diagram": (
@@ -921,7 +921,7 @@ class AIService:
             ),
             "mcq": (
                 f"{base}"
-                "Tool=MCQ GENERATOR only. 8 MCQs (easy-medium-hard) with answers.\n"
+                "Tool=MCQ GENERATOR only. 15 MCQs (easy-medium-hard) with answers.\n"
                 "Not a full syllabus notes dump.\n\n"
                 f"Topic:\n{question}"
             ),
@@ -1740,7 +1740,7 @@ footer.brand-footer strong{color:var(--accent)}
     <button class="tool-btn" data-tool="important">⭐ Important Qs <span class="pro-badge">PRO</span></button>
     <button class="tool-btn" data-tool="diagram">🧬 Diagram Explain <span class="pro-badge">PRO</span></button>
     <button class="tool-btn" data-tool="youtube">📺 YouTube Notes <span class="pro-badge">PRO</span></button>
-    <button class="pay-side" onclick="openProModal()">🔫 Ammo khatam. Please upgrade to PRO – ₹{{ price }} for 30 days</button>
+    <button class="pay-side" onclick="openProModal()">🔫 Ammo khatam ho gaye kya ?? Please upgrade to PRO – ₹{{ price }} for 30 days</button>
     <button class="refer-side" onclick="openReferModal()">🎁 Refer & Earn Free Pro</button>
     <h3>🏆 Live Leaderboard</h3>
     <div id="lb-list">Loading...</div>
@@ -2236,24 +2236,24 @@ syncProfile();
 const TOOL_PLACEHOLDERS = {
   general: "Dimaag mein kya ghoom raha hai? Poocho... 🔥",
   explain: "Konsa concept bhoot ban gaya hai samajh mein? 👻",
-  solve: "Problem yahan daalo, sulja denge 💪",
+  solve: "Problem yahan daalo, suljha mai dunga 💪",
   notes: "Last-minute revision? Topic bolo, notes ready 📝",
-  pyq: "Purana paper khodna hai? Topic bata, khazana milega 🕵️",
+  pyq: "Purana paper khodna hai? Topic batao, khazana milega 🕵️",
   formula: "Formula bhool gaye? Koi na, yahan maang lo 📐",
   planner: "Aalas chhodo, ab plan banate hain 📅",
   mock: "Ready ho jao — asli exam jaisa mahaul milega 🎯",
-  roast: "Dimaag lagao, warna pyaar se roast ho jaoge 🔥😂",
+  roast: "Dimaag lagao, warna pyaar se roast ho jao 🔥😂",
   mindmap: "Topic do, branches khud ugengi 🧠🌳",
   mcq: "Options mein ghoomte ho? Practice yahan karo ❓",
-  ncert: "Seedhi-saadi NCERT wali baat chahiye? Yahan bolo 📘",
+  ncert: "Seedhi-saadhi NCERT wali baat chahiye? Yahan bolo 📘",
   derivation: "Formula aaya kahan se? Chalo jadd tak jaate hain 📐✨",
   numerical: "Number crunching time! Problem daalo yahan 🔢",
   essay: "Shabdon ka jaadu chahiye? Topic bolo, likh dete hain ✍️",
   resume: "Apna CV chamkaate hain — details daalo 📄✨",
   career: "Future ka confusion? Befikar poocho 🚀",
-  tips: "Sparsh bhaiya ke secret tips chahiye? Bolo 💡",
-  important: "100% exam mein aane wale sawaal chahiye? Bolo ⭐",
-  diagram: "Diagram dekh ke ghabraya mat, samjha dete hain 🧬",
+  tips: "Sparsh ke secret tips chahiye? Bolo 💡",
+  important: "Exams mein most likely aane wale sawaal chahiye? Bolo ⭐",
+  diagram: "Diagram dekh ke ghabrao mat, samjha dete hain 🧬",
   youtube: "Lecture dekhne ka time nahi? Summary yahan lo 📺",
 };
 
