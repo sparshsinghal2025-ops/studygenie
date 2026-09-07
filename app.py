@@ -2626,33 +2626,73 @@ app = Flask(__name__)
 
 @app.route("/bot-icon.svg")
 def bot_icon():
-    """StudyGenie avatar — name-matching bot icon (not the developer photo)."""
+    """StudyGenie avatar — clean genie + book mark for the bot name."""
     svg = """<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
   <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0891b2"/>
+      <stop offset="50%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#db2777"/>
+    </linearGradient>
+    <linearGradient id="turban" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%" stop-color="#22d3ee"/>
-      <stop offset="55%" stop-color="#a78bfa"/>
-      <stop offset="100%" stop-color="#ec4899"/>
+      <stop offset="100%" stop-color="#818cf8"/>
     </linearGradient>
-    <linearGradient id="face" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#fef3c7"/>
-      <stop offset="100%" stop-color="#fde68a"/>
+    <linearGradient id="skin" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffe8c8"/>
+      <stop offset="100%" stop-color="#f5c78e"/>
     </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.25"/>
+    </filter>
   </defs>
-  <circle cx="64" cy="64" r="62" fill="#0f172a" stroke="url(#g)" stroke-width="4"/>
-  <ellipse cx="64" cy="72" rx="28" ry="30" fill="url(#face)"/>
-  <path d="M36 58 Q64 28 92 58 Q84 48 64 46 Q44 48 36 58Z" fill="url(#g)"/>
-  <circle cx="52" cy="70" r="4" fill="#0f172a"/>
-  <circle cx="76" cy="70" r="4" fill="#0f172a"/>
-  <path d="M54 84 Q64 92 74 84" fill="none" stroke="#0f172a" stroke-width="3" stroke-linecap="round"/>
-  <path d="M88 40 Q102 32 108 18" fill="none" stroke="#22d3ee" stroke-width="3" stroke-linecap="round" opacity="0.9"/>
-  <circle cx="110" cy="14" r="5" fill="#a78bfa"/>
-  <text x="64" y="118" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" font-weight="700" fill="#22d3ee">SG</text>
+  <!-- App icon circle -->
+  <circle cx="64" cy="64" r="64" fill="url(#bg)"/>
+  <circle cx="64" cy="64" r="58" fill="#0b1220" opacity="0.22"/>
+  <circle cx="64" cy="64" r="54" fill="#0f172a"/>
+
+  <!-- Soft glow -->
+  <circle cx="64" cy="58" r="36" fill="#22d3ee" opacity="0.08"/>
+
+  <!-- Turban / genie hat -->
+  <path d="M34 62c0-22 13-36 30-36s30 14 30 36c-8-8-19-12-30-12s-22 4-30 12z" fill="url(#turban)" filter="url(#soft)"/>
+  <ellipse cx="64" cy="48" rx="22" ry="8" fill="#a5f3fc" opacity="0.35"/>
+  <!-- Jewel on turban -->
+  <circle cx="64" cy="40" r="5.5" fill="#f472b6"/>
+  <circle cx="64" cy="40" r="2.5" fill="#fce7f3"/>
+
+  <!-- Face -->
+  <ellipse cx="64" cy="72" rx="24" ry="26" fill="url(#skin)" filter="url(#soft)"/>
+
+  <!-- Eyes -->
+  <ellipse cx="54" cy="70" rx="4.2" ry="4.8" fill="#0f172a"/>
+  <ellipse cx="74" cy="70" rx="4.2" ry="4.8" fill="#0f172a"/>
+  <circle cx="55.5" cy="68.5" r="1.4" fill="#fff"/>
+  <circle cx="75.5" cy="68.5" r="1.4" fill="#fff"/>
+
+  <!-- Smile -->
+  <path d="M54 82c3.5 6 12.5 6 16 0" fill="none" stroke="#0f172a" stroke-width="2.8" stroke-linecap="round"/>
+
+  <!-- Small book badge (study) -->
+  <g transform="translate(86 82)">
+    <rect x="0" y="0" width="18" height="14" rx="2" fill="#22d3ee"/>
+    <rect x="1.5" y="1.5" width="15" height="11" rx="1.2" fill="#ecfeff"/>
+    <line x1="9" y1="1.5" x2="9" y2="12.5" stroke="#0891b2" stroke-width="1.2"/>
+    <line x1="3" y1="5" x2="7" y2="5" stroke="#67e8f9" stroke-width="1"/>
+    <line x1="3" y1="8" x2="7" y2="8" stroke="#67e8f9" stroke-width="1"/>
+    <line x1="11" y1="5" x2="15" y2="5" stroke="#67e8f9" stroke-width="1"/>
+    <line x1="11" y1="8" x2="15" y2="8" stroke="#67e8f9" stroke-width="1"/>
+  </g>
+
+  <!-- Sparkle -->
+  <path d="M26 36l1.8 3.8 3.8 1.8-3.8 1.8L26 47.2l-1.8-3.8L20.4 41.6l3.8-1.8L26 36z" fill="#fde68a" opacity="0.95"/>
+  <path d="M98 30l1.3 2.7 2.7 1.3-2.7 1.3L98 38l-1.3-2.7-2.7-1.3 2.7-1.3L98 30z" fill="#f9a8d4" opacity="0.9"/>
 </svg>
 """
     from flask import Response
     return Response(svg, mimetype="image/svg+xml")
+
 
 
 @app.route("/sparsh.jpg")
@@ -2763,7 +2803,7 @@ def health():
             "gemini_flash_lite": ai.gemini_client is not None,
             "openrouter": ai.openrouter_ready,
         },
-        "version": "StudyGenie v6.10 (Faster answers: shorter tokens + flash-lite)",
+        "version": "StudyGenie v6.11 (Better StudyGenie icon + faster answers)",
         "creator": "Sparsh Singhal",
     })
 
