@@ -1844,7 +1844,7 @@ footer.brand-footer strong{color:var(--accent)}
     <button class="tool-btn" data-tool="important">⭐ Important Qs <span class="pro-badge">PRO</span></button>
     <button class="tool-btn" data-tool="diagram">🧬 Diagram Explain <span class="pro-badge">PRO</span></button>
     <button class="tool-btn" data-tool="youtube">📺 YouTube Notes <span class="pro-badge">PRO</span></button>
-    <button class="pay-side" onclick="openProModal()">🔫 Ammo khatam ho gaye kya ?? Please upgrade to PRO – ₹{{ price }} for 30 days</button>
+    <button class="pay-side" onclick="openProModal()">❌ Limit over? Doubt yahin rukega — Pro ₹{{ price }}/30d</button>
     <h3>🏆 Live Leaderboard</h3>
     <div id="lb-list">Loading...</div>
   </aside>
@@ -1912,20 +1912,17 @@ footer.brand-footer strong{color:var(--accent)}
 </div>
 <div class="modal-bg" id="proModal">
   <div class="modal">
-    <h2>💎 StudyGenie Pro</h2>
-    <div class="price">₹{{ price }} <span style="font-size:1rem;color:var(--muted)">/ 30 days</span></div>
-    <ul>
-      <li>Unlimited questions</li>
-      <li>🔥 Roast • 🧠 Mind Maps • ❓ MCQ • 🎯 Mock Tests</li>
-      <li>📘 NCERT • 📐 Derivation • 🔢 Numerical</li>
-      <li>📷 Image OCR • ✍️ Essay • 📄 Resume</li>
-      <li>⭐ Important Qs • 🧬 Diagram • 📺 YouTube Notes</li>
-      <li>🚀 Career • 💡 Tips • ⭐ 2× XP</li>
-    </ul>
-    <div class="actions">
-      <button class="btn-pro" onclick="goPay()">Pay & Unlock Pro</button>
-      <button class="btn-close" onclick="closeProModal()">Close</button>
+    <h2 id="proModalTitle">❌ Limit pe atak gaye?</h2>
+    <p id="proModalBody" style="color:var(--muted);font-size:.95rem;line-height:1.55;margin:.6rem 0 0"></p>
+    <div class="price" style="margin-top:1rem">₹{{ price }} <span style="font-size:1rem;color:var(--muted)">/ 30 days</span>
+      <div style="font-size:.85rem;color:#94a3b8;font-weight:500;margin-top:.25rem">din ka ~₹1.6 — ek chai se kam</div>
     </div>
+    <ul id="proModalBullets" style="margin-top:.75rem"></ul>
+    <div class="actions">
+      <button class="btn-pro" onclick="goPay()">Unlock Pro — ₹{{ price }}</button>
+      <button class="btn-close" onclick="closeProModal()">Baad mein</button>
+    </div>
+    <p id="proAbTag" style="margin-top:.5rem;font-size:.7rem;color:#475569"></p>
   </div>
 </div>
 
@@ -1960,10 +1957,63 @@ const PRICE = {{ price }};
 let currentTool = "general";
 // --- Pro upgrade modal — these were referenced by onclick= handlers above
 // but never implemented, so the main monetization button did nothing at all.
+// A/B pitch variants — pain-first, short
+const PITCH_AB = {
+  A: {
+    title: "❌ Doubt yahin ruk gaya",
+    body: "Free limit khatam. Kal tak wait — chahe raat ko exam ho.\n\nPro se abhi clear hota hai.",
+    bullets: ["Unlimited doubts", "Photo se sawaal (OCR)", "Mock + PYQ + planner", "Din ka ~₹1.6"]
+  },
+  B: {
+    title: "Limit pe mat atakna",
+    body: "Jo roz clear karke aage badhna hai, free limit beech mein rok deti hai.\n\nPro = bina rukhe padhai.",
+    bullets: ["Unlimited access", "Handwritten photo solve", "Exam tools (mock/PYQ)", "₹{{ price }} / 30 din".replace("{{ price }}", String(PRICE))]
+  }
+};
+
+function getPitchVariant(){
+  try{
+    let v = localStorage.getItem("sg_pitch_ab");
+    if(v === "A" || v === "B") return v;
+    v = (Math.random() < 0.5) ? "A" : "B";
+    localStorage.setItem("sg_pitch_ab", v);
+    return v;
+  }catch(e){ return "A"; }
+}
+
+function applyPitchVariant(){
+  const v = getPitchVariant();
+  const p = PITCH_AB[v] || PITCH_AB.A;
+  const t = document.getElementById("proModalTitle");
+  const b = document.getElementById("proModalBody");
+  const ul = document.getElementById("proModalBullets");
+  const tag = document.getElementById("proAbTag");
+  if(t) t.textContent = p.title;
+  if(b) b.textContent = p.body;
+  if(ul){
+    ul.innerHTML = (p.bullets || []).map(x => "<li>" + x + "</li>").join("");
+  }
+  if(tag) tag.textContent = "";
+  return v;
+}
+
+function trackAb(eventName){
+  try{
+    const v = getPitchVariant();
+    fetch("/api/ab/track", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ event: eventName, variant: v, client_id: clientId })
+    }).catch(function(){});
+  }catch(e){}
+}
+
 function openProModal(){
   const m = document.getElementById("proModal");
   if(!m) return;
+  applyPitchVariant();
   m.classList.add("show");
+  trackAb("pitch_view");
   try{ soundClick(); }catch(e){}
 }
 function closeProModal(){
@@ -1972,7 +2022,9 @@ function closeProModal(){
 }
 function goPay(){
   try{ soundClick(); }catch(e){}
-  window.location.href = "/pay?uid=" + encodeURIComponent("web:" + clientId);
+  trackAb("pay_click");
+  const v = getPitchVariant();
+  window.location.href = "/pay?uid=" + encodeURIComponent("web:" + clientId) + "&ab=" + encodeURIComponent(v);
 }
 
 // --- Hidden Dev Mode — tap the logo 5× within 3 seconds to open it.
@@ -2605,7 +2657,7 @@ a{color:#22d3ee}
 <body>
 <div class="card">
   <h1>🎓 StudyGenie Pro</h1>
-  <p>Unlimited doubts • Roast • Mindmap • OCR • 2× XP</p>
+  <p>Doubt yahin mat rokna — unlimited access for 30 days</p>
   <div class="price">₹{{ price }} <span style="font-size:1rem;color:#94a3b8">/ 30 days</span></div>
   <ul>
     <li>Unlimited questions</li>
@@ -2635,13 +2687,15 @@ async function startPay(){
       handler:async function(response){
         status.textContent="✅ Payment received. Unlocking Pro...";
         try{
+          const ab=(new URLSearchParams(location.search)).get("ab")||"";
           const vr=await fetch("/api/verify-payment",{
             method:"POST",
             headers:{"Content-Type":"application/json"},
             body:JSON.stringify({
               payment_id: response.razorpay_payment_id,
               order_id: response.razorpay_order_id || data.id,
-              uid: UID
+              uid: UID,
+              ab: ab
             })
           });
           const vd=await vr.json();
@@ -2781,9 +2835,16 @@ def api_verify_payment():
     payment_id = (data.get("payment_id") or data.get("razorpay_payment_id") or "").strip()
     order_id = (data.get("order_id") or data.get("razorpay_order_id") or "").strip()
     uid = (data.get("uid") or "").strip()
+    ab = (data.get("ab") or data.get("variant") or "").strip().upper()
     result = verify_and_activate_razorpay_payment(payment_id, order_id=order_id, uid_hint=uid)
     if not result.get("ok"):
         return jsonify(result), 400
+    if ab in ("A", "B") and db.redis and not result.get("duplicate"):
+        try:
+            db.redis.incr(f"ab:{ab}:pay_success")
+            db.redis.incr("ab:total:pay_success")
+        except Exception:
+            pass
     return jsonify(result)
 
 
@@ -2937,7 +2998,7 @@ def web_ask():
     if not is_pro:
         can, quota = db.try_consume_quota(uid)
         if not can:
-            return jsonify({"answer": "❌ Quota finished! Upgrade to Pro for unlimited access.\n\n- made with love by Sparsh Singhal", "quota": quota})
+            return jsonify({"answer": "❌ Free limit khatam\n\nDoubt yahin ruk gaya. Kal tak wait — chahe raat ko exam ho.\n\nPro = ₹%s / 30 din (din ka ~₹1.6)\nUnlimited + photo se sawaal + mock/PYQ\n\nLimit pe mat atakna.\n\n- StudyGenie by Sparsh Singhal" % config.PRO_PRICE_INR, "quota": quota, "upsell": True})
     start = time.time()
     cached = False
     answer = None
