@@ -390,6 +390,11 @@ class Database:
         self.register_referral_code(uid, data["referral_code"])
         if referred_by:
             self.apply_referral(uid, referred_by)
+        # index identity for dedup stats (telegram names, etc.)
+        try:
+            self.register_name_identity(uid, data.get("full_name", ""))
+        except Exception:
+            pass
         return self.get_user(uid) or data
 
     def apply_referral(self, new_uid: str | int, ref_code: str) -> bool:
@@ -656,6 +661,110 @@ class Database:
             return True
         return False
 
+    # ------------------------------------------------------------------
+    # USER DEDUPLICATION (analytics + soft identity)
+    # Web creates one account per browser/device. We treat a normalized
+    # non-default name as a soft human identity for unique-user counts.
+    # We do NOT merge quotas/XP (abuse risk) — only stats + optional link.
+    # ------------------------------------------------------------------
+    _DEFAULT_NAMES = {
+        "student", "web student", "pro student", "whatsapp student",
+        "telegram student", "user", "anonymous", "anon",
+        "🧪 test account (hidden)", "test account (hidden)",
+    }
+
+    def normalize_name(self, name: str) -> str:
+        n = " ".join((name or "").strip().lower().split())
+        # strip common prefixes/emojis noise
+        for ch in ("👤", "🧪", "👑", "🔥"):
+            n = n.replace(ch, "")
+        return " ".join(n.split())
+
+    def is_default_name(self, name: str) -> bool:
+        n = self.normalize_name(name)
+        if not n or len(n) < 2:
+            return True
+        if n in self._DEFAULT_NAMES or n in self._LB_HIDDEN_NAMES:
+            return True
+        if n.startswith("pro tester") or n.startswith("dev ·") or n.startswith("dev "):
+            return True
+        if "test account" in n:
+            return True
+        return False
+
+    def register_name_identity(self, uid: str | int, name: str) -> None:
+        """Index uid under normalized name for unique-human counting."""
+        if not self.redis:
+            return
+        uid = str(uid)
+        norm = self.normalize_name(name)
+        if self.is_default_name(norm) or self.is_test_user(uid):
+            return
+        try:
+            # reverse index: name -> set of uids
+            self.redis.sadd(f"nameidx:{norm}", uid)
+            self.redis.hset(self._key(uid), "name_key", norm)
+        except Exception as e:
+            logger.warning("register_name_identity: %s", e)
+
+    def get_unique_user_stats(self) -> Dict[str, Any]:
+        """Account-level vs human-level counts (excludes test/default names)."""
+        empty = {
+            "total_accounts": 0,
+            "test_accounts": 0,
+            "real_accounts": 0,
+            "named_real_accounts": 0,
+            "unique_humans_est": 0,
+            "unnamed_real_accounts": 0,
+            "real_pro_humans_est": 0,
+        }
+        if not self.redis:
+            return empty
+        try:
+            all_uids = list(self.redis.smembers("stats:users") or [])
+            test_accounts = 0
+            real_accounts = 0
+            named_keys: set[str] = set()
+            unnamed_real = 0
+            pro_human_keys: set[str] = set()
+            pro_unnamed = 0
+
+            for uid in all_uids:
+                u = self.get_user(uid)
+                if self.is_test_user(uid, u):
+                    test_accounts += 1
+                    continue
+                real_accounts += 1
+                name = (u or {}).get("full_name", "")
+                norm = self.normalize_name(name)
+                is_pro = self.is_pro(uid)
+                if self.is_default_name(norm):
+                    unnamed_real += 1
+                    if is_pro:
+                        pro_unnamed += 1
+                else:
+                    named_keys.add(norm)
+                    if is_pro:
+                        pro_human_keys.add(norm)
+
+            # unique humans ≈ unique names + unnamed real accounts
+            # (unnamed may still double-count multi-device; best effort)
+            unique_humans = len(named_keys) + unnamed_real
+            real_pro_humans = len(pro_human_keys) + pro_unnamed
+
+            return {
+                "total_accounts": len(all_uids),
+                "test_accounts": test_accounts,
+                "real_accounts": real_accounts,
+                "named_real_accounts": len(named_keys),
+                "unique_humans_est": unique_humans,
+                "unnamed_real_accounts": unnamed_real,
+                "real_pro_humans_est": real_pro_humans,
+            }
+        except Exception as e:
+            logger.warning("get_unique_user_stats: %s", e)
+            return empty
+
     def get_leaderboard(self, limit: int = 15) -> List[Dict]:
         if not self.redis:
             return []
@@ -742,9 +851,14 @@ class Database:
         except Exception:
             pass
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> Dict[str, Any]:
         if not self.redis:
-            return {"total_users": 0, "total_questions": 0, "dau_today": 0, "pro_users": 0, "live_approx": 0}
+            return {
+                "total_users": 0, "total_questions": 0, "dau_today": 0,
+                "pro_users": 0, "live_approx": 0,
+                "real_accounts": 0, "test_accounts": 0, "unique_humans_est": 0,
+                "real_pro_humans_est": 0,
+            }
         try:
             today = _today_ist()
             live_count = 0
@@ -757,15 +871,27 @@ class Database:
                         break
             except Exception:
                 pass
+            uniq = self.get_unique_user_stats()
             return {
                 "total_users": int(self.redis.scard("stats:users") or 0),
                 "total_questions": int(self.redis.get("stats:total_questions") or 0),
                 "dau_today": int(self.redis.scard(f"dau:{today}") or 0),
                 "pro_users": int(self.redis.scard("stats:pro_users") or 0),
                 "live_approx": live_count,
+                "real_accounts": uniq.get("real_accounts", 0),
+                "test_accounts": uniq.get("test_accounts", 0),
+                "unique_humans_est": uniq.get("unique_humans_est", 0),
+                "real_pro_humans_est": uniq.get("real_pro_humans_est", 0),
+                "named_real_accounts": uniq.get("named_real_accounts", 0),
+                "unnamed_real_accounts": uniq.get("unnamed_real_accounts", 0),
             }
         except Exception:
-            return {"total_users": 0, "total_questions": 0, "dau_today": 0, "pro_users": 0, "live_approx": 0}
+            return {
+                "total_users": 0, "total_questions": 0, "dau_today": 0,
+                "pro_users": 0, "live_approx": 0,
+                "real_accounts": 0, "test_accounts": 0, "unique_humans_est": 0,
+                "real_pro_humans_est": 0,
+            }
 
 
 db = Database()
@@ -2711,7 +2837,15 @@ def api_set_name():
     udata = db.ensure_user(uid, full_name=name, platform="web")
     udata["full_name"] = name
     db.save_user(uid, udata)
-    return jsonify({"ok": True, "name": name})
+    db.register_name_identity(uid, name)
+    # soft signal: how many accounts share this name (multi-device)
+    dup = 0
+    try:
+        if db.redis:
+            dup = int(db.redis.scard(f"nameidx:{db.normalize_name(name)}") or 0)
+    except Exception:
+        pass
+    return jsonify({"ok": True, "name": name, "accounts_with_same_name": dup})
 
 
 @app.route("/health")
@@ -2933,6 +3067,64 @@ def dev_real_pro():
         })
     except Exception as e:
         logger.error("dev_real_pro: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+
+@app.route("/api/dev/unique-users")
+def dev_unique_users():
+    """Deduped human-level stats (excludes test + default names)."""
+    if not config.DEV_SECRET or not hmac.compare_digest(request.args.get("code", ""), config.DEV_SECRET):
+        return jsonify({"ok": False}), 403
+    uniq = db.get_unique_user_stats()
+    return jsonify({"ok": True, **uniq})
+
+
+@app.route("/api/dev/clean-pro-set", methods=["POST"])
+def dev_clean_pro_set():
+    """Remove test/dev accounts from stats:pro_users. Real Pro users stay."""
+    if not config.DEV_SECRET:
+        return jsonify({"ok": False, "error": "dev mode disabled"}), 403
+    data = request.get_json(silent=True) or {}
+    code = (data.get("code") or request.args.get("code") or "").strip()
+    if not hmac.compare_digest(code, config.DEV_SECRET):
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    if not db.redis:
+        return jsonify({"ok": False, "error": "no redis"}), 500
+    try:
+        pro_set = list(db.redis.smembers("stats:pro_users") or [])
+        removed = []
+        kept = []
+        for uid in pro_set:
+            u = db.get_user(uid)
+            if db.is_test_user(str(uid), u) or (u is None):
+                db.redis.srem("stats:pro_users", uid)
+                # also demote plan if still marked pro on a pure test account
+                if u is not None and db.is_test_user(str(uid), u):
+                    try:
+                        u["is_test"] = "1"
+                        # leave plan as-is so local testing still works; only clean the public counter
+                        db.save_user(uid, u)
+                    except Exception:
+                        pass
+                removed.append(str(uid))
+            else:
+                # real user — keep only if still actually pro
+                if db.is_pro(uid):
+                    kept.append(str(uid))
+                else:
+                    db.redis.srem("stats:pro_users", uid)
+                    removed.append(str(uid))
+        return jsonify({
+            "ok": True,
+            "before": len(pro_set),
+            "removed": len(removed),
+            "kept_real_pro": len(kept),
+            "removed_uids": removed[:80],
+            "kept_uids": kept[:40],
+        })
+    except Exception as e:
+        logger.error("dev_clean_pro_set: %s", e)
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
