@@ -2876,6 +2876,66 @@ def dev_stats():
     return jsonify({"ok": True, **s})
 
 
+@app.route("/api/dev/real-pro")
+def dev_real_pro():
+    """Count real vs test Pro users (same filters as leaderboard)."""
+    if not config.DEV_SECRET or not hmac.compare_digest(request.args.get("code", ""), config.DEV_SECRET):
+        return jsonify({"ok": False}), 403
+    if not db.redis:
+        return jsonify({"ok": False, "error": "no redis"}), 500
+    try:
+        pro_set = list(db.redis.smembers("stats:pro_users") or [])
+        all_users = list(db.redis.smembers("stats:users") or [])
+        real = []
+        test = []
+        expired = []
+        missing = []
+        for uid in set(pro_set) | set(all_users):
+            u = db.get_user(uid)
+            if not u:
+                if uid in pro_set:
+                    missing.append(str(uid))
+                continue
+            currently_pro = db.is_pro(uid)
+            in_set = uid in pro_set
+            if not currently_pro and not in_set:
+                continue
+            if db.is_test_user(uid, u):
+                if currently_pro or in_set:
+                    test.append({
+                        "uid": str(uid),
+                        "name": u.get("full_name", ""),
+                        "platform": u.get("platform", ""),
+                    })
+                continue
+            if currently_pro:
+                real.append({
+                    "uid": str(uid),
+                    "name": u.get("full_name", "Student")[:40],
+                    "platform": u.get("platform", "?"),
+                    "pro_until": u.get("pro_until", ""),
+                    "questions": int(u.get("questions_asked", 0) or 0),
+                    "xp": int(u.get("xp", 0) or 0),
+                })
+            elif in_set:
+                expired.append(str(uid))
+        real.sort(key=lambda x: -x["questions"])
+        return jsonify({
+            "ok": True,
+            "raw_pro_set": len(pro_set),
+            "total_users": len(all_users),
+            "real_pro": len(real),
+            "test_pro": len(test),
+            "expired_in_set": len(expired),
+            "missing_hash": len(missing),
+            "real_users": real[:50],
+            "test_users": test[:30],
+        })
+    except Exception as e:
+        logger.error("dev_real_pro: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
 @app.route("/api/razorpay/webhook", methods=["POST"])
 def razorpay_webhook():
     try:
