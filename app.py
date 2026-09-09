@@ -457,15 +457,26 @@ class Database:
 
     def is_pro(self, uid: str | int) -> bool:
         user = self.get_user(uid)
-        if not user or user.get("plan") != "pro":
+        if not user or str(user.get("plan", "")).lower() != "pro":
             return False
-        until = user.get("pro_until", "")
+        until = (user.get("pro_until") or "").strip()
         if not until:
             return True
         try:
-            return datetime.fromisoformat(until) > _now_ist()
-        except Exception:
-            return False
+            # Handle both aware and naive ISO timestamps safely
+            raw = until.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(raw)
+            now = _now_ist()
+            if dt.tzinfo is None:
+                # treat naive pro_until as IST
+                dt = dt.replace(tzinfo=IST)
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=IST)
+            return dt > now
+        except Exception as e:
+            logger.warning("is_pro parse fail uid=%s until=%r err=%s — treating as active Pro", uid, until, e)
+            # Fail OPEN for plan=pro with unparseable date (better than locking a paid user out)
+            return True
 
     def activate_pro(self, uid: str | int, days: int = 30) -> bool:
         user = self.get_user(uid) or self.ensure_user(uid)
@@ -2365,14 +2376,20 @@ async function syncProfile(){
       const l = document.getElementById("level-display");
       if(l) l.textContent = `Level ${data.level}`;
     }
-    if(data.plan === "pro" || (data.quota && data.quota.daily_left === -1)){
+    if(data.plan === "pro" || (data.quota && data.quota.daily_left === -1) || data.plan_raw === "pro"){
       isProUser = true;
     } else {
       isProUser = false;
     }
     if(data.quota){
       const q = document.getElementById("quota-display");
-      if(q) q.textContent = data.quota.daily_left === -1 ? "PRO ∞" : `Free: ${data.quota.daily_left} left`;
+      if(q){
+        if(isProUser){
+          q.textContent = "PRO ∞";
+        } else {
+          q.textContent = data.quota.daily_left === -1 ? "PRO ∞" : `Free: ${data.quota.daily_left} left`;
+        }
+      }
     }
   }catch(e){}
 }
@@ -2968,13 +2985,16 @@ def api_me():
     db.register_referral_code(uid, user.get("referral_code", ""))
     xp = int(user.get("xp", 0) or 0)
     level = int(user.get("level", 1) or 1)
+    is_pro_now = db.is_pro(uid)
     return jsonify({
         "ok": True,
         "uid": uid,
         "name": user.get("full_name") or "Student",
         "xp": xp,
         "level": level,
-        "plan": "pro" if db.is_pro(uid) else "free",
+        "plan": "pro" if is_pro_now else "free",
+        "plan_raw": user.get("plan", "free"),
+        "pro_until": user.get("pro_until", ""),
         "quota": db.check_quota(uid)[1],
         "referral_code": user.get("referral_code", ""),
         "referral_count": user.get("referral_count", "0"),
