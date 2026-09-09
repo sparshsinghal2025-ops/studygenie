@@ -1922,6 +1922,12 @@ footer.brand-footer strong{color:var(--accent)}
       <button class="btn-pro" onclick="goPay()">Unlock Pro — ₹{{ price }}</button>
       <button class="btn-close" onclick="closeProModal()">Baad mein</button>
     </div>
+    <div style="margin-top:1rem;padding-top:.85rem;border-top:1px solid var(--border)">
+      <p style="font-size:.8rem;color:var(--muted);margin:0 0 .4rem">Pehle se pay kar chuke ho? (dusri device)</p>
+      <input id="restorePayId" class="name-input" type="text" placeholder="pay_XXXXXXXX" style="margin-bottom:.5rem" />
+      <button class="btn-pro" style="width:100%;background:#0f172a;border:1px solid var(--accent);color:var(--accent)" onclick="restorePro()">Restore Pro on this device</button>
+      <p id="restoreMsg" style="margin-top:.45rem;font-size:.8rem;color:var(--muted)"></p>
+    </div>
     <p id="proAbTag" style="margin-top:.5rem;font-size:.7rem;color:#475569"></p>
   </div>
 </div>
@@ -2025,6 +2031,41 @@ function goPay(){
   trackAb("pay_click");
   const v = getPitchVariant();
   window.location.href = "/pay?uid=" + encodeURIComponent("web:" + clientId) + "&ab=" + encodeURIComponent(v);
+}
+
+async function restorePro(){
+  const input = document.getElementById("restorePayId");
+  const msg = document.getElementById("restoreMsg");
+  const payment_id = (input && input.value || "").trim();
+  if(!payment_id || payment_id.length < 6){
+    if(msg){ msg.style.color = "#f87171"; msg.textContent = "Razorpay payment id daalo (pay_...)"; }
+    try{ soundError(); }catch(e){}
+    return;
+  }
+  if(msg){ msg.style.color = "#94a3b8"; msg.textContent = "Checking payment..."; }
+  try{
+    const res = await fetch("/api/restore-pro", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ payment_id, client_id: clientId })
+    });
+    const data = await res.json();
+    if(data.ok){
+      isProUser = true;
+      const qd = document.getElementById("quota-display");
+      if(qd) qd.textContent = "PRO ∞";
+      if(msg){ msg.style.color = "#22d3ee"; msg.textContent = "✅ Pro unlocked on this device!"; }
+      try{ soundRecv(); }catch(e){}
+      try{ localStorage.setItem("sg_pro_just_unlocked","1"); }catch(e){}
+      setTimeout(function(){ closeProModal(); syncProfile(); }, 600);
+    }else{
+      if(msg){ msg.style.color = "#f87171"; msg.textContent = data.error || "Restore failed"; }
+      try{ soundError(); }catch(e){}
+    }
+  }catch(e){
+    if(msg){ msg.style.color = "#f87171"; msg.textContent = "Network error"; }
+    try{ soundError(); }catch(e){}
+  }
 }
 
 // --- Hidden Dev Mode — tap the logo 5× within 3 seconds to open it.
@@ -2846,6 +2887,61 @@ def api_verify_payment():
         except Exception:
             pass
     return jsonify(result)
+
+
+@app.route("/api/restore-pro", methods=["POST"])
+def api_restore_pro():
+    """Activate Pro on THIS device using an existing Razorpay payment_id.
+    Fixes: paid on laptop, opened on phone (new client_id) still shows Free.
+    """
+    data = request.get_json(silent=True) or {}
+    payment_id = (data.get("payment_id") or "").strip()
+    client_id = (data.get("client_id") or "").strip()
+    if not payment_id:
+        return jsonify({"ok": False, "error": "payment_id required (Razorpay payment id, e.g. pay_xxx)"}), 400
+    if not client_id:
+        return jsonify({"ok": False, "error": "client_id required"}), 400
+    if not config.RAZORPAY_KEY_ID or not config.RAZORPAY_KEY_SECRET:
+        return jsonify({"ok": False, "error": "Razorpay not configured"}), 503
+    uid = f"web:{client_id}"
+    try:
+        auth = base64.b64encode(
+            f"{config.RAZORPAY_KEY_ID}:{config.RAZORPAY_KEY_SECRET}".encode()
+        ).decode()
+        r = requests.get(
+            f"https://api.razorpay.com/v1/payments/{payment_id}",
+            headers={"Authorization": f"Basic {auth}"},
+            timeout=20,
+        )
+        pdata = r.json()
+        if r.status_code >= 400:
+            return jsonify({"ok": False, "error": pdata.get("error", {}).get("description", "Payment not found")}), 400
+        status = (pdata.get("status") or "").lower()
+        if status not in ("captured", "authorized"):
+            return jsonify({"ok": False, "error": f"Payment not completed ({status})"}), 400
+        amount = int(pdata.get("amount") or 0)
+        expected = int(config.PRO_PRICE_INR) * 100
+        if amount < expected:
+            return jsonify({"ok": False, "error": "Amount mismatch"}), 400
+        # Bind this successful payment to current device uid
+        db.ensure_user(uid, full_name="Pro Student", platform="web")
+        db.activate_pro(uid, days=30)
+        try:
+            db.add_badge(uid, "Pro Warrior 👑")
+        except Exception:
+            pass
+        # Remember payment -> uid mapping (allow restore on multiple devices from same pay)
+        if db.redis:
+            try:
+                db.redis.sadd(f"pay:devices:{payment_id}", uid)
+                db.redis.expire(f"pay:devices:{payment_id}", 86400 * 40)
+            except Exception:
+                pass
+        logger.info("Pro restored on %s via payment %s", uid, payment_id)
+        return jsonify({"ok": True, "uid": uid, "plan": "pro", "message": "Pro unlocked on this device"})
+    except Exception as e:
+        logger.error("restore-pro: %s", e)
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/create-order", methods=["POST"])
